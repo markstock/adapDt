@@ -2,10 +2,16 @@
 Test program for adaptive time stepping in a gravitational NBody system
 
 ## Build and run
-With `g++` installed, you can simply run
+With `g++` installed, you can simply run:
 
 	make
 	./adapDt -n=10000 -s=5
+
+Generate and save a re-usable set of particles, find the "true" solution, and compare to it later:
+
+	./adapDt -n=10000 -s=0 -o=initial.dat
+	./adapDt -n=10000 -s=1 -i=initial.dat -o=truesoln.dat
+	./adapDt -n=10000 -s=10 -i=initial.dat -c=truesoln.dat
 
 ## Description
 This is a simple N-Body gravitational direct solver. The aim is to experiment with particle ordering
