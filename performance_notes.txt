@@ -5,3 +5,69 @@ N		random		incr_acc	decr_acc	incr_force	decr_force	incr_mass	decr_mass
 100000	5.201e-06	6.936e-06	5.297e-06	4.469e-06	1.021e-05	4.151e-06	1.043e-05
 Conclusion: best to order by mass, increasing
 
+RMS error vs. time step magnitude (measure of advection order)
+All 10k particles over 10 steps, errors at final step, float vs double
+dt		acc			vel			pos
+0.00001	1.567e-06	3.086e-07	7.467e-08
+0.0001	1.576e-06	5.871e-07	7.480e-08
+0.001	3.020e-06	7.006e-07	1.186e-07	little further accuracy to be gained
+0.002	4.146e-06	1.664e-06	8.055e-07
+0.01	2.535e-03	1.140e-05	9.717e-06
+0.02	9.534e-04	8.306e-06	7.887e-06
+
+Better test, to a definitive end time, still dbl vs float (not float vs. "true solution")
+dt		nsteps	acc			vel			pos
+0.1		1		1.399e-06	1.399e-06	1.493e-06
+0.01	10		2.535e-03	1.140e-05	9.717e-06
+0.001	100		3.049e-03	8.856e-06	3.890e-06
+0.0001	1000	2.128e-02	3.384e-03	2.758e-04
+
+0.001 x 100 steps:
+   particle 1000  fp32   6.728731   4.660134  -0.786215  fp64   6.728740   4.660133  -0.786224
+   particle 3000  fp32  -1.533406  -1.871629   0.100189  fp64  -1.533402  -1.871652   0.100184
+   particle 5000  fp32  -4.835177   8.460896   7.216947  fp64  -4.835204   8.460890   7.216928
+   particle 7000  fp32  -2.704675   5.196481   0.540620  fp64  -2.704685   5.196474   0.540605
+   particle 9000  fp32   0.236038   4.287914   0.816008  fp64   0.236063   4.287901   0.816005
+
+0.0001 x 1000 steps:
+   particle 1000  fp32   3.226315   5.006965  -0.600970  fp64   3.226345   5.006943  -0.600942
+   particle 3000  fp32   0.293515  -0.024989   0.459166  fp64   0.296804  -0.024047   0.457485
+   particle 5000  fp32  -6.798312   6.835475   4.662713  fp64  -6.798297   6.835453   4.662710
+   particle 7000  fp32   0.261812  -0.028464  -0.100863  fp64   0.260994  -0.029488  -0.099222
+   particle 9000  fp32   0.290248  -0.019813   0.155711  fp64   0.288634  -0.018816   0.156576
+
+Now, run a more time-resolved, double precision calculation to find the "true" solution
+Always use 10k particles at a final time of 0.01
+What dt must the "true" solution use to be deemed correct-enough?
+Tests here with float calculation at dt=0.001 and 10 step
+
+At dt=0.001 and 10 steps (same as float, we're seeing precision effects only)
+   particle 1000  fp32  -0.691119  -0.766160   0.160650  fp64  -0.691119  -0.766160   0.160650
+   particle 3000  fp32   0.466399  -0.202943   0.282341  fp64   0.466399  -0.202943   0.282341
+   particle 5000  fp32   0.077445  -0.471202  -0.622424  fp64   0.077445  -0.471202  -0.622424
+   particle 7000  fp32   0.345467   0.497836  -0.088789  fp64   0.345467   0.497836  -0.088789
+   particle 9000  fp32   0.422493   0.751414   0.135892  fp64   0.422493   0.751414   0.135892
+			(3.020e-06 RMS error vs. dble, acceleration)
+			(7.006e-07 RMS error vs. dble, velocity)
+			(1.186e-07 RMS error vs. dble, position)
+
+At dt=0.0001 and 100 steps (the "true" solution does change)
+   particle 1000  fp32  -0.691119  -0.766160   0.160650  fp64  -0.690642  -0.765863   0.160616
+   particle 3000  fp32   0.466399  -0.202943   0.282341  fp64   0.466999  -0.203021   0.281363
+   particle 5000  fp32   0.077445  -0.471202  -0.622424  fp64   0.078963  -0.471329  -0.621372
+   particle 7000  fp32   0.345467   0.497836  -0.088789  fp64   0.346186   0.496005  -0.088799
+   particle 9000  fp32   0.422493   0.751414   0.135892  fp64   0.426057   0.749961   0.133946
+			(3.028e-01 RMS error vs. dble, acceleration)
+			(4.446e-02 RMS error vs. dble, velocity)
+			(3.306e-03 RMS error vs. dble, position)
+
+At dt=0.00001 and 1000 steps (this is probably appropriate, but takes a few minutes)
+   particle 1000  fp32  -0.691119  -0.766160   0.160650  fp64  -0.690589  -0.765830   0.160612
+   particle 3000  fp32   0.466399  -0.202943   0.282341  fp64   0.467091  -0.203030   0.281222
+   particle 5000  fp32   0.077445  -0.471202  -0.622424  fp64   0.079189  -0.471325  -0.621237
+   particle 7000  fp32   0.345467   0.497836  -0.088789  fp64   0.346269   0.495795  -0.088801
+   particle 9000  fp32   0.422493   0.751414   0.135892  fp64   0.426448   0.749792   0.133676
+			(3.291e-01 RMS error vs. dble, acceleration)
+			(4.928e-02 RMS error vs. dble, velocity)
+			(3.664e-03 RMS error vs. dble, position)
+

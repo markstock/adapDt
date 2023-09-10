@@ -166,9 +166,9 @@ struct State {
 
   void euler_step(const double _dt, const int _ifirst, const int _ilast) {
     // really first order in velocity, midpoint rule for position
-    for (int i=_ifirst; i<_ilast; ++i) x[i] += _dt*(vx[i] + 0.5*ax[i]);
-    for (int i=_ifirst; i<_ilast; ++i) y[i] += _dt*(vy[i] + 0.5*ay[i]);
-    for (int i=_ifirst; i<_ilast; ++i) z[i] += _dt*(vz[i] + 0.5*az[i]);
+    for (int i=_ifirst; i<_ilast; ++i) x[i] += _dt*(vx[i] + 0.5*_dt*ax[i]);
+    for (int i=_ifirst; i<_ilast; ++i) y[i] += _dt*(vy[i] + 0.5*_dt*ay[i]);
+    for (int i=_ifirst; i<_ilast; ++i) z[i] += _dt*(vz[i] + 0.5*_dt*az[i]);
     for (int i=_ifirst; i<_ilast; ++i) vx[i] += _dt*ax[i];
     for (int i=_ifirst; i<_ilast; ++i) vy[i] += _dt*ay[i];
     for (int i=_ifirst; i<_ilast; ++i) vz[i] += _dt*az[i];
@@ -323,7 +323,13 @@ int main(int argc, char *argv[]) {
     }
 
     // median acceleration scales linearly with N
-    double dt = 1.0 / (double)n_in;
+    //double dt = 100.0 / (double)n_in;
+    double dt = 0.001;
+    double endtime = 0.01;
+    nsteps = 0.5 + endtime / dt;
+
+    double truedt = dt/10.0;
+    int truensteps = nsteps*10;
 
 #ifdef USE_MPI
     (void) MPI_Init(&argc, &argv);
@@ -424,8 +430,7 @@ int main(int argc, char *argv[]) {
     //
     // Run the simulation a few time steps
     //
-    double minSerial = 1e30;
-    for (unsigned int istep = 0; istep < nsteps; ++istep) {
+    for (int istep = 0; istep < nsteps; ++istep) {
         printf("step\t%d\n", istep);
         auto start = std::chrono::steady_clock::now();
 
@@ -460,54 +465,130 @@ int main(int argc, char *argv[]) {
         // and to ensure correct timings, wait for all MPI processes to finish
         MPI_Barrier(MPI_COMM_WORLD);
 #else
-        // run the O(N^2) calculation
-        nbody_serial(0, src.n, src.s.x.data(), src.s.y.data(), src.s.z.data(), src.m.data(), src.r.data(),
-                     0, src.n, src.s.ax.data(), src.s.ay.data(), src.s.az.data());
+        if (twolevel) {
+            // first half-step
+            nbody_serial(0, src.n, src.s.x.data(), src.s.y.data(), src.s.z.data(), src.m.data(), src.r.data(),
+                         0, src.n, src.s.ax.data(), src.s.ay.data(), src.s.az.data());
+            src.s.euler_step(0.5*dt, 0, src.n);
+            // second half-step
+            src.s.zero();
+            nbody_serial(0, src.n, src.s.x.data(), src.s.y.data(), src.s.z.data(), src.m.data(), src.r.data(),
+                         0, src.n, src.s.ax.data(), src.s.ay.data(), src.s.az.data());
+            src.s.euler_step(0.5*dt, 0, src.n);
+        } else {
+            // run the O(N^2) calculation
+            nbody_serial(0, src.n, src.s.x.data(), src.s.y.data(), src.s.z.data(), src.m.data(), src.r.data(),
+                         0, src.n, src.s.ax.data(), src.s.ay.data(), src.s.az.data());
 
-        // advect the particles
-        src.s.euler_step(dt, 0, src.n);
+            // advect the particles
+            src.s.euler_step(dt, 0, src.n);
+        }
 #endif
 
         auto end = std::chrono::steady_clock::now();
         std::chrono::duration<double> elapsed_seconds = end-start;
         if (iproc==0) printf("  float eval:\t\t[%.6f] seconds\n", (float)elapsed_seconds.count());
-        minSerial = std::min(minSerial, elapsed_seconds.count());
 
-        // repeat for doubles
-        start = std::chrono::steady_clock::now();
-        orig.s.zero();
-        nbody_serial(0, orig.n, orig.s.x.data(), orig.s.y.data(), orig.s.z.data(), orig.m.data(), orig.r.data(),
-                     0, orig.n, orig.s.ax.data(), orig.s.ay.data(), orig.s.az.data());
-        orig.s.euler_step(dt, 0, orig.n);
-        end = std::chrono::steady_clock::now();
-        elapsed_seconds = end-start;
-        if (iproc==0) printf("  dble eval:\t\t[%.6f] seconds\n", (float)elapsed_seconds.count());
+        //
+        // repeat for doubles - always step all particles as "fast"
+        //
+        if (false) {
+            start = std::chrono::steady_clock::now();
+            if (twolevel) {
+                // first half-step
+                orig.s.zero();
+                nbody_serial(0, orig.n, orig.s.x.data(), orig.s.y.data(), orig.s.z.data(), orig.m.data(), orig.r.data(),
+                             0, orig.n, orig.s.ax.data(), orig.s.ay.data(), orig.s.az.data());
+                orig.s.euler_step(0.5*dt, 0, orig.n);
+                // second half-step
+                orig.s.zero();
+                nbody_serial(0, orig.n, orig.s.x.data(), orig.s.y.data(), orig.s.z.data(), orig.m.data(), orig.r.data(),
+                             0, orig.n, orig.s.ax.data(), orig.s.ay.data(), orig.s.az.data());
+                orig.s.euler_step(0.5*dt, 0, orig.n);
+            } else {
+                // full step
+                orig.s.zero();
+                nbody_serial(0, orig.n, orig.s.x.data(), orig.s.y.data(), orig.s.z.data(), orig.m.data(), orig.r.data(),
+                             0, orig.n, orig.s.ax.data(), orig.s.ay.data(), orig.s.az.data());
+                orig.s.euler_step(dt, 0, orig.n);
+            }
+            end = std::chrono::steady_clock::now();
+            elapsed_seconds = end-start;
+            if (iproc==0) printf("  dble eval:\t\t[%.6f] seconds\n", (float)elapsed_seconds.count());
 
-        // compute error
-        if (true) {
+            // compute error
             double numer = 0.0;
             double denom = 0.0;
             for (int i=0; i<orig.n; ++i) {
                 numer += std::pow(orig.s.ax[i]-src.s.ax[i],2) + std::pow(orig.s.ay[i]-src.s.ay[i],2) + std::pow(orig.s.az[i]-src.s.az[i],2);
                 denom += std::pow(orig.s.ax[i],2) + std::pow(orig.s.ay[i],2) + std::pow(orig.s.az[i],2);
             }
+            if (iproc==0) printf("\t\t\t(%.3e RMS error vs. dble, acceleration)\n", std::sqrt(numer/denom));
 
-            if (iproc==0) {
-                printf("\t\t\t(%.3e RMS error vs. dble)\n", std::sqrt(numer/denom));
+            numer = 0.0;
+            denom = 0.0;
+            for (int i=0; i<orig.n; ++i) {
+                numer += std::pow(orig.s.vx[i]-src.s.vx[i],2) + std::pow(orig.s.vy[i]-src.s.vy[i],2) + std::pow(orig.s.vz[i]-src.s.vz[i],2);
+                denom += std::pow(orig.s.vx[i],2) + std::pow(orig.s.vy[i],2) + std::pow(orig.s.vz[i],2);
             }
+            if (iproc==0) printf("\t\t\t(%.3e RMS error vs. dble, velocity)\n", std::sqrt(numer/denom));
+
+            numer = 0.0;
+            denom = 0.0;
+            for (int i=0; i<orig.n; ++i) {
+                numer += std::pow(orig.s.x[i]-src.s.x[i],2) + std::pow(orig.s.y[i]-src.s.y[i],2) + std::pow(orig.s.z[i]-src.s.z[i],2);
+                denom += std::pow(orig.s.x[i],2) + std::pow(orig.s.y[i],2) + std::pow(orig.s.z[i],2);
+            }
+            if (iproc==0) printf("\t\t\t(%.3e RMS error vs. dble, position)\n", std::sqrt(numer/denom));
         }
     }
 
+    // run the "true" solution some number of steps
+    printf("\nrunning 'true' solution");
+    for (int istep = 0; istep < truensteps; ++istep) {
+        std::cout << "." << std::flush;
+        orig.s.zero();
+        nbody_serial(0, orig.n, orig.s.x.data(), orig.s.y.data(), orig.s.z.data(), orig.m.data(), orig.r.data(),
+                     0, orig.n, orig.s.ax.data(), orig.s.ay.data(), orig.s.az.data());
+        orig.s.euler_step(truedt, 0, orig.n);
+    }
+    std::cout << std::endl;
+
     if (iproc==0) {
-        printf("at end (t=%g), some positions\n", nsteps*dt);
-        //printf("[nbody serial]:\t\t[%.6f] seconds\n", minSerial);
-        //printf("               \t\t[%.6f] GFlop/s\n", (float)numSrcs*numSrcs*num_flops_kernel*nproc*nproc/(1.e+9*minSerial));
+        printf("\nat end (t=%g), some positions\n", nsteps*dt);
 
         // write positions
-        for (int i=0; i<2; i++) printf("   particle %d  fp32 %10.6f %10.6f %10.6f  fp64 %10.6f %10.6f %10.6f\n",i,src.s.x[i],src.s.y[i],src.s.z[i],orig.s.x[i],orig.s.y[i],orig.s.z[i]);
+        for (int i=src.n/10; i<src.n; i+=src.n/5) printf("   particle %d  fp32 %10.6f %10.6f %10.6f  fp64 %10.6f %10.6f %10.6f\n",i,src.s.x[i],src.s.y[i],src.s.z[i],orig.s.x[i],orig.s.y[i],orig.s.z[i]);
         // write accelerations
         //for (int i=0; i<2; i++) printf("   particle %d  fp32 %10.4f %10.4f %10.4f  fp64 %10.4f %10.4f %10.4f\n",i,src.s.ax[i],src.s.ay[i],src.s.az[i],orig.s.ax[i],orig.s.ay[i],orig.s.az[i]);
         printf("\n");
+    }
+
+    // compute error
+    if (true) {
+        double numer = 0.0;
+        double denom = 0.0;
+        for (int i=0; i<orig.n; ++i) {
+            numer += std::pow(orig.s.ax[i]-src.s.ax[i],2) + std::pow(orig.s.ay[i]-src.s.ay[i],2) + std::pow(orig.s.az[i]-src.s.az[i],2);
+            denom += std::pow(orig.s.ax[i],2) + std::pow(orig.s.ay[i],2) + std::pow(orig.s.az[i],2);
+        }
+        if (iproc==0) printf("\t\t\t(%.3e RMS error vs. dble, acceleration)\n", std::sqrt(numer/denom));
+
+        numer = 0.0;
+        denom = 0.0;
+        for (int i=0; i<orig.n; ++i) {
+            numer += std::pow(orig.s.vx[i]-src.s.vx[i],2) + std::pow(orig.s.vy[i]-src.s.vy[i],2) + std::pow(orig.s.vz[i]-src.s.vz[i],2);
+            denom += std::pow(orig.s.vx[i],2) + std::pow(orig.s.vy[i],2) + std::pow(orig.s.vz[i],2);
+        }
+        if (iproc==0) printf("\t\t\t(%.3e RMS error vs. dble, velocity)\n", std::sqrt(numer/denom));
+
+        numer = 0.0;
+        denom = 0.0;
+        for (int i=0; i<orig.n; ++i) {
+            numer += std::pow(orig.s.x[i]-src.s.x[i],2) + std::pow(orig.s.y[i]-src.s.y[i],2) + std::pow(orig.s.z[i]-src.s.z[i],2);
+            denom += std::pow(orig.s.x[i],2) + std::pow(orig.s.y[i],2) + std::pow(orig.s.z[i],2);
+        }
+        if (iproc==0) printf("\t\t\t(%.3e RMS error vs. dble, position)\n", std::sqrt(numer/denom));
     }
 
 #ifdef USE_MPI
