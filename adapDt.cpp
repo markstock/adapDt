@@ -1,11 +1,13 @@
 /*
- * multidt - testing hierarchical time stepping for gravitation simulations
+ * adapDt - testing hierarchical time stepping for gravitation simulations
  *
  * originally ngrav3d.cpp from nvortexVc
  * Copyright (c) 2023 Mark J Stock <markjstock@gmail.com>
 */
 
 #include <iostream>
+#include <fstream>
+#include <iomanip>		// for setprecision
 #include <cstdlib>
 #include <cstdio>
 #include <cstring>
@@ -180,13 +182,16 @@ template <class T>
 struct Particles {
 
   int n = 0;
+  std::vector<int> idx;
   std::vector<T> r, m;
   State<T> s;
 
   // sized constructor is the only constructor
   Particles(const int _n) : n(_n), s(_n) {
+    idx.resize(_n);
     r.resize(_n);
     m.resize(_n);
+    std::iota(idx.begin(), idx.end(), 0);
   }
 
   // copy constructor (must have same template parameter)
@@ -204,9 +209,7 @@ struct Particles {
 
   void deep_copy(const Particles& _from) {
     assert(n == _from.n && "Copying from Particles with different n");
-    //for (int i=0; i<n; ++i) x[i] = _from.x[i];
-    //for (int i=0; i<n; ++i) y[i] = _from.y[i];
-    //for (int i=0; i<n; ++i) z[i] = _from.z[i];
+    for (int i=0; i<n; ++i) idx[i] = _from.idx[i];
     for (int i=0; i<n; ++i) r[i] = _from.r[i];
     for (int i=0; i<n; ++i) s[i] = _from.s[i];
   }
@@ -233,9 +236,33 @@ struct Particles {
     for (int i=0; i<n; ++i) r[i] = tmp[_idx[i]];
 
     // do it for everything else
+    std::copy(idx.begin(), idx.end(), tmp.begin());
+    for (int i=0; i<n; ++i) idx[i] = tmp[_idx[i]];
     std::copy(m.begin(), m.end(), tmp.begin());
     for (int i=0; i<n; ++i) m[i] = tmp[_idx[i]];
     s.reorder(_idx);
+  }
+
+  void tofile(const std::string _ofn) {
+    assert(not _ofn.empty() && "Outfile name is bad or empty");
+    std::cout << "\nWriting data to (" << _ofn << ") ... " << std::flush;
+    std::ofstream OUTFILE(_ofn);
+    for (int i=0; i<n; ++i) {
+      OUTFILE << idx[i] << " " << std::setprecision(17) << s.x[i] << " " << s.y[i] << " " << s.z[i] << " " << r[i] << " " << m[i] << " " << s.vx[i] << " " << s.vy[i] << " " << s.vz[i] << "\n";
+    }
+    OUTFILE.close();
+    std::cout << "done" << std::endl;
+  }
+
+  void fromfile(const std::string _ifn) {
+    assert(not _ifn.empty() && "Input name is bad or empty");
+    std::cout << "\nReading data from (" << _ifn << ") ... " << std::flush;
+    std::ifstream INFILE(_ifn);
+    for (int i=0; i<n; ++i) {
+      INFILE >> idx[i] >> s.x[i] >> s.y[i] >> s.z[i] >> r[i] >> m[i] >> s.vx[i] >> s.vy[i] >> s.vz[i];
+    }
+    INFILE.close();
+    std::cout << "done" << std::endl;
   }
 
   // destructor
@@ -248,6 +275,7 @@ struct Particles {
 template<class F, class T>
 void copy_particles (const Particles<F>& _from, Particles<T>& _to) {
   assert(_from.n == _to.n && "Copying from Particles with different n");
+  _to.idx = std::vector<int>(_from.idx.begin(), _from.idx.end());
   _to.r = std::vector<T>(_from.r.begin(), _from.r.end());
   _to.m = std::vector<T>(_from.m.begin(), _from.m.end());
   _to.s.x = std::vector<T>(_from.s.x.begin(), _from.s.x.end());
@@ -297,10 +325,14 @@ int main(int argc, char *argv[]) {
 
     bool presort = true;
     bool twolevel = false;
+    bool runtrueonly = false;
     int n_in = 10000;
     int nsteps = 1;
     int nproc = 1;
     int iproc = 0;
+    std::string infile;
+    std::string outfile;
+    std::string comparefile;
 
     for (int i=1; i<argc; i++) {
         if (strncmp(argv[i], "-n=", 3) == 0) {
@@ -313,12 +345,29 @@ int main(int argc, char *argv[]) {
             n_in = num;
         } else if (strncmp(argv[i], "-s=", 3) == 0) {
             int num = atoi(argv[i] + 3);
-            if (num < 1) usage();
+            if (num < 0) usage();
             nsteps = num;
         } else if (strncmp(argv[i], "-s", 2) == 0) {
             int num = atoi(argv[++i]);
-            if (num < 1) usage();
+            if (num < 0) usage();
             nsteps = num;
+        } else if (strncmp(argv[i], "-i=", 3) == 0) {
+            infile = std::string(argv[i]);
+            infile.erase(0,3);
+        } else if (strncmp(argv[i], "-i", 2) == 0) {
+            infile = std::string(argv[++i]);
+        } else if (strncmp(argv[i], "-o=", 3) == 0) {
+            outfile = std::string(argv[i]);
+            outfile.erase(0,3);
+        } else if (strncmp(argv[i], "-o", 2) == 0) {
+            outfile = std::string(argv[++i]);
+        } else if (strncmp(argv[i], "-c=", 3) == 0) {
+            comparefile = std::string(argv[i]);
+            comparefile.erase(0,3);
+        } else if (strncmp(argv[i], "-c", 2) == 0) {
+            comparefile = std::string(argv[++i]);
+        } else if (strncmp(argv[i], "-true", 2) == 0) {
+            runtrueonly = true;
         }
     }
 
@@ -328,8 +377,8 @@ int main(int argc, char *argv[]) {
     double endtime = 0.01;
     nsteps = 0.5 + endtime / dt;
 
-    double truedt = dt/10.0;
-    int truensteps = nsteps*10;
+    double truedt = 0.00001;
+    int truensteps = 0.5 + endtime / truedt;
 
 #ifdef USE_MPI
     (void) MPI_Init(&argc, &argv);
@@ -356,9 +405,21 @@ int main(int argc, char *argv[]) {
 
     // allocate fp64 and fp32 particle data
     Particles<double> orig(numSrcs);
-    orig.init_rand(gen);
+    if (infile.empty()) {
+        orig.init_rand(gen);
+    } else {
+        orig.fromfile(infile);
+    }
+
+    // copy the full-precision particles to the test set
     Particles<float> src(numSrcs);
     copy_particles(orig, src);
+
+    // optionally save initial state
+    if (not outfile.empty() and nsteps == 0) {
+        // we didn't run a sim, so save the initial state of the high-precision particles
+        orig.tofile(outfile);
+    }
 
 #ifdef USE_MPI
     // what's the largest number that we'll encounter?
@@ -383,7 +444,7 @@ int main(int argc, char *argv[]) {
     // optionally run one summation and then re-order the particles based on a criterion
     //
     if (presort) {
-        printf("Running precursor calculation and reordering\n");
+        printf("\nRunning precursor calculation and reordering\n");
 
         // find all accelerations
         orig.s.zero();
@@ -430,6 +491,8 @@ int main(int argc, char *argv[]) {
     //
     // Run the simulation a few time steps
     //
+    if (not runtrueonly) {
+    printf("\nRunning test solution");
     for (int istep = 0; istep < nsteps; ++istep) {
         printf("step\t%d\n", istep);
         auto start = std::chrono::steady_clock::now();
@@ -542,17 +605,24 @@ int main(int argc, char *argv[]) {
             if (iproc==0) printf("\t\t\t(%.3e RMS error vs. dble, position)\n", std::sqrt(numer/denom));
         }
     }
-
-    // run the "true" solution some number of steps
-    printf("\nrunning 'true' solution");
-    for (int istep = 0; istep < truensteps; ++istep) {
-        std::cout << "." << std::flush;
-        orig.s.zero();
-        nbody_serial(0, orig.n, orig.s.x.data(), orig.s.y.data(), orig.s.z.data(), orig.m.data(), orig.r.data(),
-                     0, orig.n, orig.s.ax.data(), orig.s.ay.data(), orig.s.az.data());
-        orig.s.euler_step(truedt, 0, orig.n);
     }
-    std::cout << std::endl;
+
+    // get the true solution somehow
+    if (comparefile.empty()) {
+        printf("\nRunning 'true' solution");
+        // run the "true" solution some number of steps
+        for (int istep = 0; istep < truensteps; ++istep) {
+            std::cout << "." << std::flush;
+            orig.s.zero();
+            nbody_serial(0, orig.n, orig.s.x.data(), orig.s.y.data(), orig.s.z.data(), orig.m.data(), orig.r.data(),
+                         0, orig.n, orig.s.ax.data(), orig.s.ay.data(), orig.s.az.data());
+            orig.s.euler_step(truedt, 0, orig.n);
+        }
+        std::cout << std::endl;
+    } else {
+        // just read in the compare file
+        orig.fromfile(comparefile);
+    }
 
     if (iproc==0) {
         printf("\nat end (t=%g), some positions\n", nsteps*dt);
@@ -565,7 +635,7 @@ int main(int argc, char *argv[]) {
     }
 
     // compute error
-    if (true) {
+    if (not runtrueonly) {
         double numer = 0.0;
         double denom = 0.0;
         for (int i=0; i<orig.n; ++i) {
@@ -590,6 +660,16 @@ int main(int argc, char *argv[]) {
         }
         if (iproc==0) printf("\t\t\t(%.3e RMS error vs. dble, position)\n", std::sqrt(numer/denom));
     }
+
+    // write output particles, true or test solution
+    if (not outfile.empty()) {
+        if (runtrueonly) {
+            orig.tofile(outfile);
+        } else {
+            src.tofile(outfile);
+        }
+    }
+
 
 #ifdef USE_MPI
     MPI_Finalize();
