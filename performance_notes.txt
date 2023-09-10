@@ -1,0 +1,7 @@
+Acceleration error vs. N, float vs. double
+N		random		incr_acc	decr_acc	incr_force	decr_force	incr_mass	decr_mass
+1000	4.847e-07	5.214e-07	4.645e-07	4.421e-07	6.079e-07	4.386e-07	6.499e-07
+10000	1.475e-06	1.662e-06	1.396e-06	1.399e-06	1.898e-06	1.319e-06	2.050e-06
+100000	5.201e-06	6.936e-06	5.297e-06	4.469e-06	1.021e-05	4.151e-06	1.043e-05
+Conclusion: best to order by mass, increasing
+
