@@ -72,9 +72,10 @@ At dt=0.00001 and 1000 steps (this is probably appropriate, but takes a few minu
 			(3.664e-03 RMS error vs. dble, position)
 
 Now, with a fp64 solution of 10k particles to t=0.01 using 1000 steps, we compare the fp32 solutions
-dt		nsteps	vel			pos
-0.01	1		9.119e-01	1.631e-01
-0.001	10		4.928e-02	3.664e-03
-0.0001	100		5.529e-03	3.772e-04
+dt		nsteps	vel			pos			max-vel		max-pos
+0.01	1		1.819e-01	1.651e-02	1.079e+00	1.381e-01
+0.001	10		4.928e-02	3.664e-03	4.424e-01	2.880e-02
+0.0001	100		5.529e-03	3.772e-04	4.604e-02	3.777e-03
 Now we see proper O(dt) error behavior!
 
+Can we design a two-tiered time stepper that saves time but gives equal accuracy

@@ -518,7 +518,9 @@ int main(int argc, char *argv[]) {
     // Run the simulation a few time steps
     //
     if (not runtrueonly) {
-    printf("\nRunning test solution");
+    printf("\nRunning test solution for %d steps, dt %g\n", nsteps, dt);
+    float tottime = 0.0;
+
     for (int istep = 0; istep < nsteps; ++istep) {
         printf("step\t%d\n", istep);
         auto start = std::chrono::steady_clock::now();
@@ -576,7 +578,8 @@ int main(int argc, char *argv[]) {
 
         auto end = std::chrono::steady_clock::now();
         std::chrono::duration<double> elapsed_seconds = end-start;
-        if (iproc==0) printf("  float eval:\t\t[%.6f] seconds\n", (float)elapsed_seconds.count());
+        if (iproc==0) printf("  test eval:\t\t[%.6f] seconds\n", (float)elapsed_seconds.count());
+        tottime += (float)elapsed_seconds.count();
 
         //
         // repeat for doubles - always step all particles as "fast"
@@ -631,6 +634,7 @@ int main(int argc, char *argv[]) {
             if (iproc==0) printf("\t\t\t(%.3e RMS error vs. dble, position)\n", std::sqrt(numer/denom));
         }
     }
+        if (iproc==0) printf("\nTotal test time :\t[%.6f] seconds\n", tottime);
     }
 
     // get the true solution somehow
@@ -664,6 +668,8 @@ int main(int argc, char *argv[]) {
     if (not runtrueonly) {
         double numer = 0.0;
         double denom = 0.0;
+        double maxerr = 0.0;
+        /*
         for (int i=0; i<orig.n; ++i) {
             numer += std::pow(orig.s.ax[i]-src.s.ax[i],2) + std::pow(orig.s.ay[i]-src.s.ay[i],2) + std::pow(orig.s.az[i]-src.s.az[i],2);
             denom += std::pow(orig.s.ax[i],2) + std::pow(orig.s.ay[i],2) + std::pow(orig.s.az[i],2);
@@ -672,19 +678,26 @@ int main(int argc, char *argv[]) {
 
         numer = 0.0;
         denom = 0.0;
+        maxerr = 0.0;
+        */
         for (int i=0; i<orig.n; ++i) {
-            numer += std::pow(orig.s.vx[i]-src.s.vx[i],2) + std::pow(orig.s.vy[i]-src.s.vy[i],2) + std::pow(orig.s.vz[i]-src.s.vz[i],2);
+            double thiserr = std::pow(orig.s.vx[i]-src.s.vx[i],2) + std::pow(orig.s.vy[i]-src.s.vy[i],2) + std::pow(orig.s.vz[i]-src.s.vz[i],2);
+            if (thiserr > maxerr) maxerr = thiserr;
+            numer += thiserr;
             denom += std::pow(orig.s.vx[i],2) + std::pow(orig.s.vy[i],2) + std::pow(orig.s.vz[i],2);
         }
-        if (iproc==0) printf("\t\t\t(%.3e RMS error vs. dble, velocity)\n", std::sqrt(numer/denom));
+        if (iproc==0) printf("\t\t\t(%.3e / %.3e mean/max RMS error vs. dble, velocity)\n", std::sqrt(numer/denom), std::sqrt(orig.n*maxerr/denom));
 
         numer = 0.0;
         denom = 0.0;
+        maxerr = 0.0;
         for (int i=0; i<orig.n; ++i) {
-            numer += std::pow(orig.s.x[i]-src.s.x[i],2) + std::pow(orig.s.y[i]-src.s.y[i],2) + std::pow(orig.s.z[i]-src.s.z[i],2);
+            double thiserr = std::pow(orig.s.x[i]-src.s.x[i],2) + std::pow(orig.s.y[i]-src.s.y[i],2) + std::pow(orig.s.z[i]-src.s.z[i],2);
+            if (thiserr > maxerr) maxerr = thiserr;
+            numer += thiserr;
             denom += std::pow(orig.s.x[i],2) + std::pow(orig.s.y[i],2) + std::pow(orig.s.z[i],2);
         }
-        if (iproc==0) printf("\t\t\t(%.3e RMS error vs. dble, position)\n", std::sqrt(numer/denom));
+        if (iproc==0) printf("\t\t\t(%.3e / %.3e mean/max RMS error vs. dble, position)\n", std::sqrt(numer/denom), std::sqrt(orig.n*maxerr/denom));
     }
 
     // write output particles, true or test solution
