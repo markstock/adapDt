@@ -245,7 +245,7 @@ struct Particles {
 
   void tofile(const std::string _ofn) {
     assert(not _ofn.empty() && "Outfile name is bad or empty");
-    std::cout << "\nWriting data to (" << _ofn << ") ... " << std::flush;
+    std::cout << "\nWriting data to (" << _ofn << ")..." << std::flush;
     std::ofstream OUTFILE(_ofn);
     for (int i=0; i<n; ++i) {
       OUTFILE << idx[i] << " " << std::setprecision(17) << s.x[i] << " " << s.y[i] << " " << s.z[i] << " " << r[i] << " " << m[i] << " " << s.vx[i] << " " << s.vy[i] << " " << s.vz[i] << "\n";
@@ -256,7 +256,7 @@ struct Particles {
 
   void fromfile(const std::string _ifn) {
     assert(not _ifn.empty() && "Input name is bad or empty");
-    std::cout << "\nReading data from (" << _ifn << ") ... " << std::flush;
+    std::cout << "\nReading data from (" << _ifn << ")..." << std::flush;
     std::ifstream INFILE(_ifn);
     for (int i=0; i<n; ++i) {
       INFILE >> idx[i] >> s.x[i] >> s.y[i] >> s.z[i] >> r[i] >> m[i] >> s.vx[i] >> s.vy[i] >> s.vz[i];
@@ -330,6 +330,8 @@ int main(int argc, char *argv[]) {
     int nsteps = 1;
     int nproc = 1;
     int iproc = 0;
+    double dt = 0.001;
+    double endtime = 0.01;
     std::string infile;
     std::string outfile;
     std::string comparefile;
@@ -343,6 +345,7 @@ int main(int argc, char *argv[]) {
             int num = atoi(argv[++i]);
             if (num < 1) usage();
             n_in = num;
+
         } else if (strncmp(argv[i], "-s=", 3) == 0) {
             int num = atoi(argv[i] + 3);
             if (num < 0) usage();
@@ -351,31 +354,54 @@ int main(int argc, char *argv[]) {
             int num = atoi(argv[++i]);
             if (num < 0) usage();
             nsteps = num;
+
+        } else if (strncmp(argv[i], "-dt=", 4) == 0) {
+            double num = atof(argv[i] + 4);
+            if (num < 0.0) usage();
+            dt = num;
+            nsteps = 0.5 + endtime / dt;
+        } else if (strncmp(argv[i], "-dt", 3) == 0) {
+            int num = atof(argv[++i]);
+            if (num < 0.0) usage();
+            dt = num;
+            nsteps = 0.5 + endtime / dt;
+
+        } else if (strncmp(argv[i], "-end=", 5) == 0) {
+            double num = atof(argv[i] + 5);
+            if (num < 0.0) usage();
+            endtime = num;
+            nsteps = 0.5 + endtime / dt;
+        } else if (strncmp(argv[i], "-end", 4) == 0) {
+            int num = atof(argv[++i]);
+            if (num < 0.0) usage();
+            endtime = num;
+            nsteps = 0.5 + endtime / dt;
+
         } else if (strncmp(argv[i], "-i=", 3) == 0) {
             infile = std::string(argv[i]);
             infile.erase(0,3);
         } else if (strncmp(argv[i], "-i", 2) == 0) {
             infile = std::string(argv[++i]);
+
         } else if (strncmp(argv[i], "-o=", 3) == 0) {
             outfile = std::string(argv[i]);
             outfile.erase(0,3);
         } else if (strncmp(argv[i], "-o", 2) == 0) {
             outfile = std::string(argv[++i]);
+
         } else if (strncmp(argv[i], "-c=", 3) == 0) {
             comparefile = std::string(argv[i]);
             comparefile.erase(0,3);
         } else if (strncmp(argv[i], "-c", 2) == 0) {
             comparefile = std::string(argv[++i]);
+
         } else if (strncmp(argv[i], "-true", 2) == 0) {
             runtrueonly = true;
         }
     }
 
     // median acceleration scales linearly with N
-    //double dt = 100.0 / (double)n_in;
-    double dt = 0.001;
-    double endtime = 0.01;
-    nsteps = 0.5 + endtime / dt;
+    //dt = 100.0 / (double)n_in;
 
     double truedt = 0.00001;
     int truensteps = 0.5 + endtime / truedt;
