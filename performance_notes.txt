@@ -95,6 +95,20 @@ dt		nsteps	vel			pos			max-vel		max-pos
 0.0001*	100		3.054e-03	2.205e-04	2.598e-02	2.674e-03
 Conclusion: at first take, we're able to nearly halve the error with only 25% (not 100%) more work
 
-Now, can we make this hierarchical, and can we make it solution-adaptive?
+Also, to allow comparisons to "true" solutions, but allow particles to be re-ordered frequently,
+we need the comparison feature to sort and reorder both test and true data.
 
+Done, now let's pre-sort by mass instead of force:
+dt		nsteps	vel			pos			max-vel		max-pos
+0.002*	5		5.313e-02	4.027e-03	4.424e-01	2.893e-02
+0.001*	10		2.957e-02	2.176e-03	2.081e-01	1.719e-02
+This is even better!
+Full-calculation at 0.001 takes 2.5s is almost the same error as 2-tier calc with 0.002 taking 1.3 sec.
+
+
+Now, can we make this hierarchical, and can we make it solution-adaptive?
+Must be able to push the most error-prone particles up to the top of the array.
+
+
+Also want to generate a more realistic mass distribution (few heavier, many lighter particles)
 

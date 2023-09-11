@@ -556,9 +556,9 @@ int main(int argc, char *argv[]) {
         // if we use raw acceleration
         //for (int i=0; i<orig.n; ++i) val[i] = std::sqrt(orig.s.ax[i]*orig.s.ax[i] + orig.s.ay[i]*orig.s.ay[i] + orig.s.az[i]*orig.s.az[i]);
         // what if we use force as the orderer?
-        for (int i=0; i<orig.n; ++i) val[i] = orig.m[i] * std::sqrt(orig.s.ax[i]*orig.s.ax[i] + orig.s.ay[i]*orig.s.ay[i] + orig.s.az[i]*orig.s.az[i]);
+        //for (int i=0; i<orig.n; ++i) val[i] = orig.m[i] * std::sqrt(orig.s.ax[i]*orig.s.ax[i] + orig.s.ay[i]*orig.s.ay[i] + orig.s.az[i]*orig.s.az[i]);
         // and what about mass? the best for a single direct solve
-        //for (int i=0; i<orig.n; ++i) val[i] = orig.m[i];
+        for (int i=0; i<orig.n; ++i) val[i] = orig.m[i];
 
         // sort, and keep the re-ordering
         std::vector<int> idx(orig.n);
@@ -643,52 +643,9 @@ int main(int argc, char *argv[]) {
         std::chrono::duration<double> elapsed_seconds = end-start;
         if (iproc==0) printf("  test eval:\t\t[%.6f] seconds\n", (float)elapsed_seconds.count());
         tottime += (float)elapsed_seconds.count();
-
-        //
-        // repeat for doubles - always step all particles as "fast"
-        //
-        if (false) {
-            start = std::chrono::steady_clock::now();
-            if (twolevel) {
-                // two half-steps
-                orig.take_step(0.5*dt, 0, orig.n);
-                orig.take_step(0.5*dt, 0, orig.n);
-            } else {
-                // full step
-                orig.take_step(dt, 0, orig.n);
-            }
-            end = std::chrono::steady_clock::now();
-            elapsed_seconds = end-start;
-            if (iproc==0) printf("  dble eval:\t\t[%.6f] seconds\n", (float)elapsed_seconds.count());
-
-            // compute error
-            double numer = 0.0;
-            double denom = 0.0;
-            for (int i=0; i<orig.n; ++i) {
-                numer += std::pow(orig.s.ax[i]-src.s.ax[i],2) + std::pow(orig.s.ay[i]-src.s.ay[i],2) + std::pow(orig.s.az[i]-src.s.az[i],2);
-                denom += std::pow(orig.s.ax[i],2) + std::pow(orig.s.ay[i],2) + std::pow(orig.s.az[i],2);
-            }
-            if (iproc==0) printf("\t\t\t(%.3e RMS error vs. dble, acceleration)\n", std::sqrt(numer/denom));
-
-            numer = 0.0;
-            denom = 0.0;
-            for (int i=0; i<orig.n; ++i) {
-                numer += std::pow(orig.s.vx[i]-src.s.vx[i],2) + std::pow(orig.s.vy[i]-src.s.vy[i],2) + std::pow(orig.s.vz[i]-src.s.vz[i],2);
-                denom += std::pow(orig.s.vx[i],2) + std::pow(orig.s.vy[i],2) + std::pow(orig.s.vz[i],2);
-            }
-            if (iproc==0) printf("\t\t\t(%.3e RMS error vs. dble, velocity)\n", std::sqrt(numer/denom));
-
-            numer = 0.0;
-            denom = 0.0;
-            for (int i=0; i<orig.n; ++i) {
-                numer += std::pow(orig.s.x[i]-src.s.x[i],2) + std::pow(orig.s.y[i]-src.s.y[i],2) + std::pow(orig.s.z[i]-src.s.z[i],2);
-                denom += std::pow(orig.s.x[i],2) + std::pow(orig.s.y[i],2) + std::pow(orig.s.z[i],2);
-            }
-            if (iproc==0) printf("\t\t\t(%.3e RMS error vs. dble, position)\n", std::sqrt(numer/denom));
-        }
-    }
-        if (iproc==0) printf("\nTotal test time :\t[%.6f] seconds\n", tottime);
-    }
+    } // end for istep
+    if (iproc==0) printf("\nTotal test time :\t[%.6f] seconds\n", tottime);
+    } // end if 
 
     // get the true solution somehow
     if (comparefile.empty()) {
@@ -704,7 +661,7 @@ int main(int argc, char *argv[]) {
         orig.fromfile(comparefile);
     }
 
-    if (iproc==0) {
+    if (iproc==0 and false) {
         printf("\nat end (t=%g), some positions\n", nsteps*dt);
 
         // write positions
@@ -716,53 +673,68 @@ int main(int argc, char *argv[]) {
 
     // compute error
     if (not runtrueonly) {
+
+        // before computing errors, sort the true particles
+        std::vector<int> idx(orig.n);
+        // initialize original index locations
+        std::iota(idx.begin(), idx.end(), 0);
+        // lowest to highest
+        std::vector<int>& test = orig.idx;
+        std::sort(idx.begin(),
+                  idx.end(),
+                  [&test](int i1, int i2) {return test[i1] < test[i2];});
+        // reorder all points
+        orig.reorder(idx);
+
         double numer = 0.0;
         double denom = 0.0;
         double maxerr = 0.0;
-        /*
-        for (int i=0; i<orig.n; ++i) {
-            numer += std::pow(orig.s.ax[i]-src.s.ax[i],2) + std::pow(orig.s.ay[i]-src.s.ay[i],2) + std::pow(orig.s.az[i]-src.s.az[i],2);
-            denom += std::pow(orig.s.ax[i],2) + std::pow(orig.s.ay[i],2) + std::pow(orig.s.az[i],2);
-        }
-        if (iproc==0) printf("\t\t\t(%.3e RMS error vs. dble, acceleration)\n", std::sqrt(numer/denom));
-        */
-        numer = 0.0;
-        denom = 0.0;
-        maxerr = 0.0;
-        for (int i=0; i<orig.n; ++i) {
-            double thiserr = std::pow(orig.s.x[i]-src.s.x[i],2) + std::pow(orig.s.y[i]-src.s.y[i],2) + std::pow(orig.s.z[i]-src.s.z[i],2);
-            if (thiserr > maxerr) maxerr = thiserr;
-            numer += thiserr;
-            denom += std::pow(orig.s.x[i],2) + std::pow(orig.s.y[i],2) + std::pow(orig.s.z[i],2);
-        }
-        if (iproc==0) printf("\t\t\t(%.3e / %.3e mean/max RMS error vs. dble, position)\n", std::sqrt(numer/denom), std::sqrt(orig.n*maxerr/denom));
 
-        numer = 0.0;
-        denom = 0.0;
-        maxerr = 0.0;
-        for (int i=0; i<orig.n; ++i) {
-            double thiserr = std::pow(orig.s.vx[i]-src.s.vx[i],2) + std::pow(orig.s.vy[i]-src.s.vy[i],2) + std::pow(orig.s.vz[i]-src.s.vz[i],2);
-            if (thiserr > maxerr) maxerr = thiserr;
-            numer += thiserr;
-            denom += std::pow(orig.s.vx[i],2) + std::pow(orig.s.vy[i],2) + std::pow(orig.s.vz[i],2);
-        }
-        if (iproc==0) printf("\t\t\t(%.3e / %.3e mean/max RMS error vs. dble, velocity)\n", std::sqrt(numer/denom), std::sqrt(orig.n*maxerr/denom));
-
-        // write file for error analysis
+        // write file for error analysis (velocity)
         if (not errorfile.empty()) {
+            for (int i=0; i<orig.n; ++i) {
+                denom += std::pow(orig.s.vx[i],2) + std::pow(orig.s.vy[i],2) + std::pow(orig.s.vz[i],2);
+            }
             std::cout << "\nWriting error to (" << errorfile << ")..." << std::flush;
             std::ofstream OUTFILE(errorfile);
             for (int i=0; i<orig.n; ++i) {
-                double posmag = std::sqrt(std::pow(src.s.x[i],2) + std::pow(src.s.y[i],2) + std::pow(src.s.z[i],2));
-                double velmag = std::sqrt(std::pow(src.s.vx[i],2) + std::pow(src.s.vy[i],2) + std::pow(src.s.vz[i],2));
-                double accmag = std::sqrt(std::pow(src.s.ax[i],2) + std::pow(src.s.ay[i],2) + std::pow(src.s.az[i],2));
-                double velerr = std::pow(orig.s.vx[i]-src.s.vx[i],2) + std::pow(orig.s.vy[i]-src.s.vy[i],2) + std::pow(orig.s.vz[i]-src.s.vz[i],2);
+                const double posmag = std::sqrt(std::pow(src.s.x[i],2) + std::pow(src.s.y[i],2) + std::pow(src.s.z[i],2));
+                const double velmag = std::sqrt(std::pow(src.s.vx[i],2) + std::pow(src.s.vy[i],2) + std::pow(src.s.vz[i],2));
+                const double accmag = std::sqrt(std::pow(src.s.ax[i],2) + std::pow(src.s.ay[i],2) + std::pow(src.s.az[i],2));
+                const int oid = src.idx[i];
+                double velerr = std::pow(orig.s.vx[oid]-src.s.vx[i],2) + std::pow(orig.s.vy[oid]-src.s.vy[i],2) + std::pow(orig.s.vz[oid]-src.s.vz[i],2);
                 velerr = std::sqrt(orig.n*velerr/denom);
                 OUTFILE << i << " " << std::setprecision(8) << posmag << " " << velmag << " " << accmag << " " << src.r[i] << " " << src.m[i] << " " << velerr << "\n";
             }
             OUTFILE.close();
             std::cout << "done" << std::endl;
         }
+
+        if (iproc==0) printf("\nFinal error analysis :\n");
+
+        numer = 0.0;
+        denom = 0.0;
+        maxerr = 0.0;
+        for (int i=0; i<orig.n; ++i) {
+            const int oid = src.idx[i];
+            const double thiserr = std::pow(orig.s.x[oid]-src.s.x[i],2) + std::pow(orig.s.y[oid]-src.s.y[i],2) + std::pow(orig.s.z[oid]-src.s.z[i],2);
+            if (thiserr > maxerr) maxerr = thiserr;
+            numer += thiserr;
+            denom += std::pow(orig.s.x[i],2) + std::pow(orig.s.y[i],2) + std::pow(orig.s.z[i],2);
+        }
+        if (iproc==0) printf("\t\t(%.3e / %.3e mean/max RMS error vs. dble, position)\n", std::sqrt(numer/denom), std::sqrt(orig.n*maxerr/denom));
+
+        numer = 0.0;
+        denom = 0.0;
+        maxerr = 0.0;
+        for (int i=0; i<orig.n; ++i) {
+            const int oid = src.idx[i];
+            const double thiserr = std::pow(orig.s.vx[oid]-src.s.vx[i],2) + std::pow(orig.s.vy[oid]-src.s.vy[i],2) + std::pow(orig.s.vz[oid]-src.s.vz[i],2);
+            if (thiserr > maxerr) maxerr = thiserr;
+            numer += thiserr;
+            denom += std::pow(orig.s.vx[i],2) + std::pow(orig.s.vy[i],2) + std::pow(orig.s.vz[i],2);
+        }
+        if (iproc==0) printf("\t\t(%.3e / %.3e mean/max RMS error vs. dble, velocity)\n", std::sqrt(numer/denom), std::sqrt(orig.n*maxerr/denom));
 
     }
 
