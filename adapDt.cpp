@@ -347,6 +347,7 @@ int main(int argc, char *argv[]) {
     std::string infile;
     std::string outfile;
     std::string comparefile;
+    std::string errorfile;
 
     for (int i=1; i<argc; i++) {
         if (strncmp(argv[i], "-n=", 3) == 0) {
@@ -406,6 +407,12 @@ int main(int argc, char *argv[]) {
             comparefile.erase(0,3);
         } else if (strncmp(argv[i], "-c", 2) == 0) {
             comparefile = std::string(argv[++i]);
+
+        } else if (strncmp(argv[i], "-error=", 7) == 0) {
+            errorfile = std::string(argv[i]);
+            errorfile.erase(0,7);
+        } else if (strncmp(argv[i], "-error", 6) == 0) {
+            errorfile = std::string(argv[++i]);
 
         } else if (strncmp(argv[i], "-true", 2) == 0) {
             runtrueonly = true;
@@ -664,19 +671,7 @@ int main(int argc, char *argv[]) {
             denom += std::pow(orig.s.ax[i],2) + std::pow(orig.s.ay[i],2) + std::pow(orig.s.az[i],2);
         }
         if (iproc==0) printf("\t\t\t(%.3e RMS error vs. dble, acceleration)\n", std::sqrt(numer/denom));
-
-        numer = 0.0;
-        denom = 0.0;
-        maxerr = 0.0;
         */
-        for (int i=0; i<orig.n; ++i) {
-            double thiserr = std::pow(orig.s.vx[i]-src.s.vx[i],2) + std::pow(orig.s.vy[i]-src.s.vy[i],2) + std::pow(orig.s.vz[i]-src.s.vz[i],2);
-            if (thiserr > maxerr) maxerr = thiserr;
-            numer += thiserr;
-            denom += std::pow(orig.s.vx[i],2) + std::pow(orig.s.vy[i],2) + std::pow(orig.s.vz[i],2);
-        }
-        if (iproc==0) printf("\t\t\t(%.3e / %.3e mean/max RMS error vs. dble, velocity)\n", std::sqrt(numer/denom), std::sqrt(orig.n*maxerr/denom));
-
         numer = 0.0;
         denom = 0.0;
         maxerr = 0.0;
@@ -687,6 +682,34 @@ int main(int argc, char *argv[]) {
             denom += std::pow(orig.s.x[i],2) + std::pow(orig.s.y[i],2) + std::pow(orig.s.z[i],2);
         }
         if (iproc==0) printf("\t\t\t(%.3e / %.3e mean/max RMS error vs. dble, position)\n", std::sqrt(numer/denom), std::sqrt(orig.n*maxerr/denom));
+
+        numer = 0.0;
+        denom = 0.0;
+        maxerr = 0.0;
+        for (int i=0; i<orig.n; ++i) {
+            double thiserr = std::pow(orig.s.vx[i]-src.s.vx[i],2) + std::pow(orig.s.vy[i]-src.s.vy[i],2) + std::pow(orig.s.vz[i]-src.s.vz[i],2);
+            if (thiserr > maxerr) maxerr = thiserr;
+            numer += thiserr;
+            denom += std::pow(orig.s.vx[i],2) + std::pow(orig.s.vy[i],2) + std::pow(orig.s.vz[i],2);
+        }
+        if (iproc==0) printf("\t\t\t(%.3e / %.3e mean/max RMS error vs. dble, velocity)\n", std::sqrt(numer/denom), std::sqrt(orig.n*maxerr/denom));
+
+        // write file for error analysis
+        if (not errorfile.empty()) {
+            std::cout << "\nWriting error to (" << errorfile << ")..." << std::flush;
+            std::ofstream OUTFILE(errorfile);
+            for (int i=0; i<orig.n; ++i) {
+                double posmag = std::sqrt(std::pow(src.s.x[i],2) + std::pow(src.s.y[i],2) + std::pow(src.s.z[i],2));
+                double velmag = std::sqrt(std::pow(src.s.vx[i],2) + std::pow(src.s.vy[i],2) + std::pow(src.s.vz[i],2));
+                double accmag = std::sqrt(std::pow(src.s.ax[i],2) + std::pow(src.s.ay[i],2) + std::pow(src.s.az[i],2));
+                double velerr = std::pow(orig.s.vx[i]-src.s.vx[i],2) + std::pow(orig.s.vy[i]-src.s.vy[i],2) + std::pow(orig.s.vz[i]-src.s.vz[i],2);
+                velerr = std::sqrt(orig.n*velerr/denom);
+                OUTFILE << i << " " << std::setprecision(8) << posmag << " " << velmag << " " << accmag << " " << src.r[i] << " " << src.m[i] << " " << velerr << "\n";
+            }
+            OUTFILE.close();
+            std::cout << "done" << std::endl;
+        }
+
     }
 
     // write output particles, true or test solution
@@ -697,7 +720,6 @@ int main(int argc, char *argv[]) {
             src.tofile(outfile);
         }
     }
-
 
 #ifdef USE_MPI
     MPI_Finalize();
