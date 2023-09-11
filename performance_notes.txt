@@ -72,10 +72,29 @@ At dt=0.00001 and 1000 steps (this is probably appropriate, but takes a few minu
 			(3.664e-03 RMS error vs. dble, position)
 
 Now, with a fp64 solution of 10k particles to t=0.01 using 1000 steps, we compare the fp32 solutions
+./adapDt.bin -n=10000 -dt=0.001 -end=0.01 -i=initial.dat -c=truesoln.dat
 dt		nsteps	vel			pos			max-vel		max-pos
 0.01	1		1.819e-01	1.651e-02	1.079e+00	1.381e-01
 0.001	10		4.928e-02	3.664e-03	4.424e-01	2.880e-02
 0.0001	100		5.529e-03	3.772e-04	4.604e-02	3.777e-03
 Now we see proper O(dt) error behavior!
 
-Can we design a two-tiered time stepper that saves time but gives equal accuracy
+Let's see how the error is distributed
+./adapDt.bin -n=10000 -dt=0.001 -end=0.01 -i=initial.dat -c=truesoln.dat -error=err0p001.dat
+yes, ordering my force does put the more error-prone particles in the top part of the array
+
+Can we design a two-tiered time stepper that saves time but gives equal accuracy?
+
+First take: just force top 1/2 of particles to take 2 time steps, saving and re-using some accelerations
+./adapDt.bin -n=10000 -dt=0.001 -end=0.01 -i=initial.dat -c=truesoln.dat -error=err0p001a.dat
+does 25% more work than if all particles took the full outer time step
+gives
+dt		nsteps	vel			pos			max-vel		max-pos
+0.01*	1		1.592e-01	1.225e-02	1.131e+00	1.045e-01
+0.001*	10		3.198e-02	2.365e-03	2.162e-01	2.296e-02
+0.0001*	100		3.054e-03	2.205e-04	2.598e-02	2.674e-03
+Conclusion: at first take, we're able to nearly halve the error with only 25% (not 100%) more work
+
+Now, can we make this hierarchical, and can we make it solution-adaptive?
+
+

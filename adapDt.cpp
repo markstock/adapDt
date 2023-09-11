@@ -134,10 +134,14 @@ struct State {
     for (int i=0; i<n; ++i) az[i] = 0.0;
   }
 
+  void zero(const int _is, const int _if) {
+    for (int i=_is; i<_if; ++i) ax[i] = 0.0;
+    for (int i=_is; i<_if; ++i) ay[i] = 0.0;
+    for (int i=_is; i<_if; ++i) az[i] = 0.0;
+  }
+
   void zero() {
-    for (int i=0; i<n; ++i) ax[i] = 0.0;
-    for (int i=0; i<n; ++i) ay[i] = 0.0;
-    for (int i=0; i<n; ++i) az[i] = 0.0;
+    zero(0, n);
   }
 
   void reorder(const std::vector<int>& _idx) {
@@ -265,16 +269,67 @@ struct Particles {
     std::cout << "done" << std::endl;
   }
 
-  void take_step (const double _dt, const int _istart, const int _iend) {
+  // a typical step
+  void take_step (const double _dt, const int _trgstart, const int _trgend) {
     // zero the accelerations
-    s.zero();
+    s.zero(_trgstart, _trgend);
 
     // run the O(N^2) force summation - all sources on the given targets
     nbody_serial(0, n, s.x.data(), s.y.data(), s.z.data(), m.data(), r.data(),
-                 _istart, _iend, s.ax.data(), s.ay.data(), s.az.data());
+                 _trgstart, _trgend, s.ax.data(), s.ay.data(), s.az.data());
 
     // advect the particles
-    s.euler_step(_dt, _istart, _iend);
+    s.euler_step(_dt, _trgstart, _trgend);
+  }
+
+  // a step where we split the targets into slow and fast particles
+  void take_step (const double _dt, const int _trgstart, const int _trgend, const float _fastfrac) {
+    assert(_fastfrac > 0.0 and _fastfrac < 1.0 and "_fastfrac is not 0..1");
+
+    // zero all accelerations
+    s.zero(_trgstart, _trgend);
+
+    // find cutoff between slow (low index) and fast (higher index) particles
+    const int ifast = (_trgend-_trgstart)*_fastfrac;
+
+    // find accelerations for slow particles from all particles
+    nbody_serial(_trgstart, _trgend, s.x.data(), s.y.data(), s.z.data(), m.data(), r.data(),
+                 _trgstart, ifast, s.ax.data(), s.ay.data(), s.az.data());
+
+    // vectors for temp accelerations for fast particles
+
+    // find accelerations for fast particles from slow particles
+    nbody_serial(_trgstart, ifast, s.x.data(), s.y.data(), s.z.data(), m.data(), r.data(),
+                 ifast, _trgend, s.ax.data(), s.ay.data(), s.az.data());
+    // save them
+    std::vector<T> tax(_trgend-ifast);
+    std::vector<T> tay(_trgend-ifast);
+    std::vector<T> taz(_trgend-ifast);
+    std::copy(s.ax.begin()+ifast, s.ax.begin()+_trgend, tax.begin());
+    std::copy(s.ay.begin()+ifast, s.ay.begin()+_trgend, tay.begin());
+    std::copy(s.az.begin()+ifast, s.az.begin()+_trgend, taz.begin());
+
+    // accumulate accelerations for fast particles from fast particles, 
+    nbody_serial(ifast, _trgend, s.x.data(), s.y.data(), s.z.data(), m.data(), r.data(),
+                 ifast, _trgend, s.ax.data(), s.ay.data(), s.az.data());
+
+    // move the fast particles a half-step
+    s.euler_step(0.5*_dt, ifast, _trgend);
+
+    // instead of zeroing, reset the fast particles' accelerations to the temp values
+    std::copy(tax.begin(), tax.end(), s.ax.begin()+ifast);
+    std::copy(tay.begin(), tay.end(), s.ay.begin()+ifast);
+    std::copy(taz.begin(), taz.end(), s.az.begin()+ifast);
+
+    // recalculate the accelerations for fast particles from fast particles
+    nbody_serial(ifast, _trgend, s.x.data(), s.y.data(), s.z.data(), m.data(), r.data(),
+                 ifast, _trgend, s.ax.data(), s.ay.data(), s.az.data());
+
+    // only move the fast particles
+    s.euler_step(0.5*_dt, ifast, _trgend);
+
+    // finally move the slow particles
+    s.euler_step(_dt, _trgstart, ifast);
   }
 
   // destructor
@@ -336,7 +391,7 @@ static inline void usage() {
 int main(int argc, char *argv[]) {
 
     bool presort = true;
-    bool twolevel = false;
+    bool twolevel = true;
     bool runtrueonly = false;
     int n_in = 10000;
     int nsteps = 1;
@@ -576,9 +631,8 @@ int main(int argc, char *argv[]) {
         MPI_Barrier(MPI_COMM_WORLD);
 #else
         if (twolevel) {
-            // take two half-steps
-            src.take_step(0.5*dt, 0, src.n);
-            src.take_step(0.5*dt, 0, src.n);
+            // step some fraction of particles twice
+            src.take_step(dt, 0, src.n, 0.5);
         } else {
             // take a full step
             src.take_step(dt, 0, src.n);
