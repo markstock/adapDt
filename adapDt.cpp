@@ -265,6 +265,18 @@ struct Particles {
     std::cout << "done" << std::endl;
   }
 
+  void take_step (const double _dt, const int _istart, const int _iend) {
+    // zero the accelerations
+    s.zero();
+
+    // run the O(N^2) force summation - all sources on the given targets
+    nbody_serial(0, n, s.x.data(), s.y.data(), s.z.data(), m.data(), r.data(),
+                 _istart, _iend, s.ax.data(), s.ay.data(), s.az.data());
+
+    // advect the particles
+    s.euler_step(_dt, _istart, _iend);
+  }
+
   // destructor
   ~Particles() { }
 };
@@ -557,22 +569,12 @@ int main(int argc, char *argv[]) {
         MPI_Barrier(MPI_COMM_WORLD);
 #else
         if (twolevel) {
-            // first half-step
-            nbody_serial(0, src.n, src.s.x.data(), src.s.y.data(), src.s.z.data(), src.m.data(), src.r.data(),
-                         0, src.n, src.s.ax.data(), src.s.ay.data(), src.s.az.data());
-            src.s.euler_step(0.5*dt, 0, src.n);
-            // second half-step
-            src.s.zero();
-            nbody_serial(0, src.n, src.s.x.data(), src.s.y.data(), src.s.z.data(), src.m.data(), src.r.data(),
-                         0, src.n, src.s.ax.data(), src.s.ay.data(), src.s.az.data());
-            src.s.euler_step(0.5*dt, 0, src.n);
+            // take two half-steps
+            src.take_step(0.5*dt, 0, src.n);
+            src.take_step(0.5*dt, 0, src.n);
         } else {
-            // run the O(N^2) calculation
-            nbody_serial(0, src.n, src.s.x.data(), src.s.y.data(), src.s.z.data(), src.m.data(), src.r.data(),
-                         0, src.n, src.s.ax.data(), src.s.ay.data(), src.s.az.data());
-
-            // advect the particles
-            src.s.euler_step(dt, 0, src.n);
+            // take a full step
+            src.take_step(dt, 0, src.n);
         }
 #endif
 
@@ -587,22 +589,12 @@ int main(int argc, char *argv[]) {
         if (false) {
             start = std::chrono::steady_clock::now();
             if (twolevel) {
-                // first half-step
-                orig.s.zero();
-                nbody_serial(0, orig.n, orig.s.x.data(), orig.s.y.data(), orig.s.z.data(), orig.m.data(), orig.r.data(),
-                             0, orig.n, orig.s.ax.data(), orig.s.ay.data(), orig.s.az.data());
-                orig.s.euler_step(0.5*dt, 0, orig.n);
-                // second half-step
-                orig.s.zero();
-                nbody_serial(0, orig.n, orig.s.x.data(), orig.s.y.data(), orig.s.z.data(), orig.m.data(), orig.r.data(),
-                             0, orig.n, orig.s.ax.data(), orig.s.ay.data(), orig.s.az.data());
-                orig.s.euler_step(0.5*dt, 0, orig.n);
+                // two half-steps
+                orig.take_step(0.5*dt, 0, orig.n);
+                orig.take_step(0.5*dt, 0, orig.n);
             } else {
                 // full step
-                orig.s.zero();
-                nbody_serial(0, orig.n, orig.s.x.data(), orig.s.y.data(), orig.s.z.data(), orig.m.data(), orig.r.data(),
-                             0, orig.n, orig.s.ax.data(), orig.s.ay.data(), orig.s.az.data());
-                orig.s.euler_step(dt, 0, orig.n);
+                orig.take_step(dt, 0, orig.n);
             }
             end = std::chrono::steady_clock::now();
             elapsed_seconds = end-start;
@@ -643,10 +635,7 @@ int main(int argc, char *argv[]) {
         // run the "true" solution some number of steps
         for (int istep = 0; istep < truensteps; ++istep) {
             std::cout << "." << std::flush;
-            orig.s.zero();
-            nbody_serial(0, orig.n, orig.s.x.data(), orig.s.y.data(), orig.s.z.data(), orig.m.data(), orig.r.data(),
-                         0, orig.n, orig.s.ax.data(), orig.s.ay.data(), orig.s.az.data());
-            orig.s.euler_step(truedt, 0, orig.n);
+            orig.take_step(truedt, 0, orig.n);
         }
         std::cout << std::endl;
     } else {
