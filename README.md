@@ -18,3 +18,9 @@ This is a simple N-Body gravitational direct solver. The aim is to experiment wi
 and methods to adapt the time step by factors of 2 for groups of particles in order to complete
 the work faster with similar total error.
 
+# To Do
+* Keep the MPI version up-to-date
+* Support higher-order forward integrators (Verlet or AB2 come to mind)
+* Try out on a more realistic mass distribution
+* Make the slow-fast splits solution-adaptive (means finding a better estimate of potential error)
+
