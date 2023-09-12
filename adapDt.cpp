@@ -395,8 +395,6 @@ struct Particles {
     // save the accelerations on all fast particles from all slow particles
     //   note that these arrays are still size n - inefficient
     ThreeVec<T> slowacc(n);
-    // first, from particles even slower than those involved in this step - um, do we need this?
-    //slowacc.add_from(ifast, _trgend, _tempacc);
     // then from the slow portion of particles within this step
     slowacc.add_from(ifast, _trgend, s.ax, s.ay, s.az);
 
@@ -465,7 +463,7 @@ int main(int argc, char *argv[]) {
 
     bool presort = true;
     bool runtrueonly = false;
-    int num_levels = 2;
+    int num_levels = 1;
     int n_in = 10000;
     int nsteps = 1;
     int nproc = 1;
@@ -506,6 +504,15 @@ int main(int argc, char *argv[]) {
             if (num < 0.0) usage();
             dt = num;
             nsteps = 0.5 + endtime / dt;
+
+        } else if (strncmp(argv[i], "-l=", 3) == 0) {
+            int num = atoi(argv[i] + 3);
+            if (num < 1) usage();
+            num_levels = num;
+        } else if (strncmp(argv[i], "-l", 2) == 0) {
+            int num = atoi(argv[++i]);
+            if (num < 1) usage();
+            num_levels = num;
 
         } else if (strncmp(argv[i], "-end=", 5) == 0) {
             double num = atof(argv[i] + 5);
@@ -708,7 +715,7 @@ int main(int argc, char *argv[]) {
         acc_from_slower.zero();
 
         // step all particles
-        src.take_step(dt, 0, src.n, acc_from_slower, 0.6, num_levels);
+        src.take_step(dt, 0, src.n, acc_from_slower, 0.3, num_levels);
 #endif
 
         auto end = std::chrono::steady_clock::now();
