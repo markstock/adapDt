@@ -335,16 +335,36 @@ struct Particles {
     s.euler_step(_dt, _trgstart, _trgend);
   }
 
+  // final step: given source particles affect given target particles, starting with given acceleration
+  void take_step (const double _dt, const int _trgstart, const int _trgend,
+                  const ThreeVec<T>& _tempacc) {
+
+    // set the accelerations from input (assume it's from all particles 0.._trgstart
+    s.setacc(_trgstart, _trgend, _tempacc);
+
+    // run the O(N^2) force summation - all sources on the given targets
+    nbody_serial(_trgstart, _trgend, s.x.data(), s.y.data(), s.z.data(), m.data(), r.data(),
+                 _trgstart, _trgend, s.ax.data(), s.ay.data(), s.az.data());
+
+    // advect the particles
+    s.euler_step(_dt, _trgstart, _trgend);
+  }
+
   // a step where we split a range of targets into subranges of slow and fast particles,
   //   running one step of the slow particles and two steps of the fast particles
   // assumes particles with greatest error are nearer the end of the arrays
   //
   void take_step (const double _dt, const int _trgstart, const int _trgend,
-                  ThreeVec<T>& _tempacc, const float _slowfrac, const int _levels) {
+                  const ThreeVec<T>& _tempacc, const float _slowfrac, const int _levels) {
+
+    // where are we?
+    static int max_levels = _levels;
+    for (int i=max_levels-_levels; i>0; --i) std::cout << "  ";
+    std::cout << "  stepping " << _trgstart << " to " << _trgend-1 << " by " << _dt << " at level " << _levels << std::endl;
 
     // if there are no more levels to go, run the easy one
     if (_levels == 1) {
-        take_step(_dt, _trgstart, _trgend);
+        take_step(_dt, _trgstart, _trgend, _tempacc);
         return;
     }
 
@@ -375,27 +395,17 @@ struct Particles {
     // save the accelerations on all fast particles from all slow particles
     //   note that these arrays are still size n - inefficient
     ThreeVec<T> slowacc(n);
-    // first, from particles even slower than those involved in this step
-    slowacc.add_from(ifast, _trgend, _tempacc);
+    // first, from particles even slower than those involved in this step - um, do we need this?
+    //slowacc.add_from(ifast, _trgend, _tempacc);
     // then from the slow portion of particles within this step
     slowacc.add_from(ifast, _trgend, s.ax, s.ay, s.az);
 
-    // accumulate accelerations for fast particles from fast particles, 
-    nbody_serial(ifast, _trgend, s.x.data(), s.y.data(), s.z.data(), m.data(), r.data(),
-                 ifast, _trgend, s.ax.data(), s.ay.data(), s.az.data());
+    // all fast particles take a half step
+    take_step(0.5*_dt, ifast, _trgend, slowacc, _slowfrac, _levels-1);
 
-    // move the fast particles a half-step
-    s.euler_step(0.5*_dt, ifast, _trgend);
+    // all fast particles take a half step again
+    take_step(0.5*_dt, ifast, _trgend, slowacc, _slowfrac, _levels-1);
 
-    // instead of zeroing, reset the fast particles' accelerations to the temp values
-    slowacc.copy_to(ifast, _trgend, s.ax, s.ay, s.az);
-
-    // recalculate the accelerations for fast particles from fast particles
-    nbody_serial(ifast, _trgend, s.x.data(), s.y.data(), s.z.data(), m.data(), r.data(),
-                 ifast, _trgend, s.ax.data(), s.ay.data(), s.az.data());
-
-    // only move the fast particles
-    s.euler_step(0.5*_dt, ifast, _trgend);
   }
 };
 
