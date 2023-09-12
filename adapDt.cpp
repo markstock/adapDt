@@ -97,6 +97,51 @@ inline int nthisproc(const int ntotal, const int iproc, const int nproc) {
   return (iproc < (ntotal-base_nper*nproc)) ? base_nper+1 : base_nper;
 }
 
+// Class to store a 3-vec for each particle
+template <class T>
+struct ThreeVec {
+  std::vector<T> x, y, z;
+
+  // constructor needs a size
+  ThreeVec(const int _n) {
+    x.resize(_n);
+    y.resize(_n);
+    z.resize(_n);
+    zero();
+  }
+
+  // destructor
+  ~ThreeVec() { }
+
+  void zero(const int _is, const int _if) {
+    for (int i=_is; i<_if; ++i) x[i] = 0.0;
+    for (int i=_is; i<_if; ++i) y[i] = 0.0;
+    for (int i=_is; i<_if; ++i) z[i] = 0.0;
+  }
+
+  void zero() {
+    zero(0, x.size());
+  }
+
+  void add_from(const int _is, const int _if, const ThreeVec<T>& _val) {
+    for (int i=_is; i<_if; ++i) x[i] += _val.x[i];
+    for (int i=_is; i<_if; ++i) y[i] += _val.y[i];
+    for (int i=_is; i<_if; ++i) z[i] += _val.z[i];
+  }
+
+  void add_from(const int _is, const int _if, const std::vector<T>& _x, const std::vector<T>& _y, const std::vector<T>& _z) {
+    for (int i=_is; i<_if; ++i) x[i] += _x[i];
+    for (int i=_is; i<_if; ++i) y[i] += _y[i];
+    for (int i=_is; i<_if; ++i) z[i] += _z[i];
+  }
+
+  void copy_to(const int _is, const int _if, std::vector<T>& _x, std::vector<T>& _y, std::vector<T>& _z) {
+    for (int i=_is; i<_if; ++i) _x[i] = x[i];
+    for (int i=_is; i<_if; ++i) _y[i] = y[i];
+    for (int i=_is; i<_if; ++i) _z[i] = z[i];
+  }
+};
+
 // Class to store states
 template <class T>
 struct State {
@@ -144,6 +189,12 @@ struct State {
     zero(0, n);
   }
 
+  void setacc(const int _is, const int _if, const ThreeVec<T>& _acc) {
+    for (int i=_is; i<_if; ++i) ax[i] = _acc.x[i];
+    for (int i=_is; i<_if; ++i) ay[i] = _acc.y[i];
+    for (int i=_is; i<_if; ++i) az[i] = _acc.z[i];
+  }
+
   void reorder(const std::vector<int>& _idx) {
     // see the one in Particles
     std::vector<T> tmp(n);
@@ -161,7 +212,7 @@ struct State {
     for (int i=0; i<n; ++i) vy[i] = tmp[_idx[i]];
     std::copy(vz.begin(), vz.end(), tmp.begin());
     for (int i=0; i<n; ++i) vz[i] = tmp[_idx[i]];
-    // don't bother with accelerations?
+    // accelerations
     std::copy(ax.begin(), ax.end(), tmp.begin());
     for (int i=0; i<n; ++i) ax[i] = tmp[_idx[i]];
     std::copy(ay.begin(), ay.end(), tmp.begin());
@@ -188,6 +239,7 @@ struct Particles {
   int n = 0;
   std::vector<int> idx;
   std::vector<T> r, m;
+  // one State stores position, velocity, acceleration for n particles
   State<T> s;
 
   // sized constructor is the only constructor
@@ -197,6 +249,9 @@ struct Particles {
     m.resize(_n);
     std::iota(idx.begin(), idx.end(), 0);
   }
+
+  // destructor
+  ~Particles() {}
 
   // copy constructor (must have same template parameter)
   Particles(const Particles& _src) : Particles(_src.n) {
@@ -232,10 +287,8 @@ struct Particles {
   void reorder(const std::vector<int>& _idx) {
     // temporary reusable float vector
     std::vector<T> tmp(n);
-
     // copy the original input float vector into that temporary vector
     std::copy(r.begin(), r.end(), tmp.begin());
-
     // scatter values from the temp vector back into the original vector
     for (int i=0; i<n; ++i) r[i] = tmp[_idx[i]];
 
@@ -269,7 +322,7 @@ struct Particles {
     std::cout << "done" << std::endl;
   }
 
-  // a typical step
+  // simple step: all source particles affect given target particles
   void take_step (const double _dt, const int _trgstart, const int _trgend) {
     // zero the accelerations
     s.zero(_trgstart, _trgend);
@@ -282,32 +335,50 @@ struct Particles {
     s.euler_step(_dt, _trgstart, _trgend);
   }
 
-  // a step where we split the targets into slow and fast particles
-  void take_step (const double _dt, const int _trgstart, const int _trgend, const float _fastfrac) {
-    assert(_fastfrac > 0.0 and _fastfrac < 1.0 and "_fastfrac is not 0..1");
+  // a step where we split a range of targets into subranges of slow and fast particles,
+  //   running one step of the slow particles and two steps of the fast particles
+  // assumes particles with greatest error are nearer the end of the arrays
+  //
+  void take_step (const double _dt, const int _trgstart, const int _trgend,
+                  ThreeVec<T>& _tempacc, const float _slowfrac, const int _levels) {
 
-    // zero all accelerations
-    s.zero(_trgstart, _trgend);
+    // if there are no more levels to go, run the easy one
+    if (_levels == 1) {
+        take_step(_dt, _trgstart, _trgend);
+        return;
+    }
+
+    // we're doing at least a 2-level time stepping
+    assert(_slowfrac > 0.0 and _slowfrac < 1.0 and "_slowfrac is not 0..1");
+
+    // set accelerations of all target particles with passed-in values (all slower)
+    s.setacc(_trgstart, _trgend, _tempacc);
 
     // find cutoff between slow (low index) and fast (higher index) particles
-    const int ifast = (_trgend-_trgstart)*_fastfrac;
+    const int ifast = _trgstart + (_trgend-_trgstart)*_slowfrac;
 
-    // find accelerations for slow particles from all particles
+    // let's work on this step's slow particles first
+
+    // find accelerations of slow particles from all particles
     nbody_serial(_trgstart, _trgend, s.x.data(), s.y.data(), s.z.data(), m.data(), r.data(),
                  _trgstart, ifast, s.ax.data(), s.ay.data(), s.az.data());
 
-    // vectors for temp accelerations for fast particles
-
-    // find accelerations for fast particles from slow particles
+    // find accelerations of fast particles from slow particles
     nbody_serial(_trgstart, ifast, s.x.data(), s.y.data(), s.z.data(), m.data(), r.data(),
                  ifast, _trgend, s.ax.data(), s.ay.data(), s.az.data());
-    // save them
-    std::vector<T> tax(_trgend-ifast);
-    std::vector<T> tay(_trgend-ifast);
-    std::vector<T> taz(_trgend-ifast);
-    std::copy(s.ax.begin()+ifast, s.ax.begin()+_trgend, tax.begin());
-    std::copy(s.ay.begin()+ifast, s.ay.begin()+_trgend, tay.begin());
-    std::copy(s.az.begin()+ifast, s.az.begin()+_trgend, taz.begin());
+
+    // move the slow particles - we're done with them for this step
+    s.euler_step(_dt, _trgstart, ifast);
+
+    // now focus on the fast particles
+
+    // save the accelerations on all fast particles from all slow particles
+    //   note that these arrays are still size n - inefficient
+    ThreeVec<T> slowacc(n);
+    // first, from particles even slower than those involved in this step
+    slowacc.add_from(ifast, _trgend, _tempacc);
+    // then from the slow portion of particles within this step
+    slowacc.add_from(ifast, _trgend, s.ax, s.ay, s.az);
 
     // accumulate accelerations for fast particles from fast particles, 
     nbody_serial(ifast, _trgend, s.x.data(), s.y.data(), s.z.data(), m.data(), r.data(),
@@ -317,9 +388,7 @@ struct Particles {
     s.euler_step(0.5*_dt, ifast, _trgend);
 
     // instead of zeroing, reset the fast particles' accelerations to the temp values
-    std::copy(tax.begin(), tax.end(), s.ax.begin()+ifast);
-    std::copy(tay.begin(), tay.end(), s.ay.begin()+ifast);
-    std::copy(taz.begin(), taz.end(), s.az.begin()+ifast);
+    slowacc.copy_to(ifast, _trgend, s.ax, s.ay, s.az);
 
     // recalculate the accelerations for fast particles from fast particles
     nbody_serial(ifast, _trgend, s.x.data(), s.y.data(), s.z.data(), m.data(), r.data(),
@@ -327,13 +396,7 @@ struct Particles {
 
     // only move the fast particles
     s.euler_step(0.5*_dt, ifast, _trgend);
-
-    // finally move the slow particles
-    s.euler_step(_dt, _trgstart, ifast);
   }
-
-  // destructor
-  ~Particles() { }
 };
 
 //
@@ -391,8 +454,8 @@ static inline void usage() {
 int main(int argc, char *argv[]) {
 
     bool presort = true;
-    bool twolevel = true;
     bool runtrueonly = false;
+    int num_levels = 2;
     int n_in = 10000;
     int nsteps = 1;
     int nproc = 1;
@@ -630,13 +693,12 @@ int main(int argc, char *argv[]) {
         // and to ensure correct timings, wait for all MPI processes to finish
         MPI_Barrier(MPI_COMM_WORLD);
 #else
-        if (twolevel) {
-            // step some fraction of particles twice
-            src.take_step(dt, 0, src.n, 0.5);
-        } else {
-            // take a full step
-            src.take_step(dt, 0, src.n);
-        }
+        // save a running vector of the acceleration from slower particles
+        ThreeVec<float> acc_from_slower(src.n);
+        acc_from_slower.zero();
+
+        // step all particles
+        src.take_step(dt, 0, src.n, acc_from_slower, 0.6, num_levels);
 #endif
 
         auto end = std::chrono::steady_clock::now();
