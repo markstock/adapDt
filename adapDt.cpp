@@ -97,7 +97,7 @@ inline int nthisproc(const int ntotal, const int iproc, const int nproc) {
   return (iproc < (ntotal-base_nper*nproc)) ? base_nper+1 : base_nper;
 }
 
-// Class to store a 3-vec for each particle
+// Class to store a 3-vec for each particle in SoA style
 template <class T>
 struct ThreeVec {
   std::vector<T> x, y, z;
@@ -113,6 +113,14 @@ struct ThreeVec {
   // destructor
   ~ThreeVec() { }
 
+  void init_rand(std::mt19937 _gen, const T _min, const T _max) {
+    std::uniform_real_distribution<> zmean_dist(_min, _max);
+    const int n = x.size();
+    for (int i=0; i<n; ++i) x[i] = zmean_dist(_gen);
+    for (int i=0; i<n; ++i) y[i] = zmean_dist(_gen);
+    for (int i=0; i<n; ++i) z[i] = zmean_dist(_gen);
+  }
+
   void zero(const int _is, const int _if) {
     for (int i=_is; i<_if; ++i) x[i] = 0.0;
     for (int i=_is; i<_if; ++i) y[i] = 0.0;
@@ -121,6 +129,12 @@ struct ThreeVec {
 
   void zero() {
     zero(0, x.size());
+  }
+
+  void set_from(const int _is, const int _if, const ThreeVec<T>& _val) {
+    for (int i=_is; i<_if; ++i) x[i] = _val.x[i];
+    for (int i=_is; i<_if; ++i) y[i] = _val.y[i];
+    for (int i=_is; i<_if; ++i) z[i] = _val.z[i];
   }
 
   void add_from(const int _is, const int _if, const ThreeVec<T>& _val) {
@@ -140,49 +154,40 @@ struct ThreeVec {
     for (int i=_is; i<_if; ++i) _y[i] = y[i];
     for (int i=_is; i<_if; ++i) _z[i] = z[i];
   }
+
+  void reorder(const std::vector<int>& _idx) {
+    assert(_idx.size() == x.size() && "Idx and X vectors do not match in size");
+    std::vector<T> tmp(_idx.size());
+    const int n = x.size();
+    std::copy(x.begin(), x.end(), tmp.begin());
+    for (int i=0; i<n; ++i) x[i] = tmp[_idx[i]];
+    std::copy(y.begin(), y.end(), tmp.begin());
+    for (int i=0; i<n; ++i) y[i] = tmp[_idx[i]];
+    std::copy(z.begin(), z.end(), tmp.begin());
+    for (int i=0; i<n; ++i) z[i] = tmp[_idx[i]];
+  }
 };
 
 // Class to store states
 template <class T>
 struct State {
   int n;
-  std::vector<T> x, y, z;
-  std::vector<T> vx, vy, vz;
-  std::vector<T> ax, ay, az;
+  ThreeVec<T> pos, vel, acc;
 
   // constructor needs a size
-  State(const int _n) : n(_n) {
-    x.resize(_n);
-    y.resize(_n);
-    z.resize(_n);
-    vx.resize(_n);
-    vy.resize(_n);
-    vz.resize(_n);
-    ax.resize(_n);
-    ay.resize(_n);
-    az.resize(_n);
-  }
+  State(const int _n) : n(_n), pos(_n), vel(_n), acc(_n) {}
 
   // destructor
   ~State() { }
 
   void init_rand(std::mt19937 _gen) {
-    std::uniform_real_distribution<> zmean_dist(-1.0, 1.0);
-    for (int i=0; i<n; ++i) x[i] = zmean_dist(_gen);
-    for (int i=0; i<n; ++i) y[i] = zmean_dist(_gen);
-    for (int i=0; i<n; ++i) z[i] = zmean_dist(_gen);
-    for (int i=0; i<n; ++i) vx[i] = zmean_dist(_gen);
-    for (int i=0; i<n; ++i) vy[i] = zmean_dist(_gen);
-    for (int i=0; i<n; ++i) vz[i] = zmean_dist(_gen);
-    for (int i=0; i<n; ++i) ax[i] = 0.0;
-    for (int i=0; i<n; ++i) ay[i] = 0.0;
-    for (int i=0; i<n; ++i) az[i] = 0.0;
+    pos.init_rand(_gen, -1.0, 1.0);
+    vel.init_rand(_gen, -1.0, 1.0);
+    acc.zero();
   }
 
   void zero(const int _is, const int _if) {
-    for (int i=_is; i<_if; ++i) ax[i] = 0.0;
-    for (int i=_is; i<_if; ++i) ay[i] = 0.0;
-    for (int i=_is; i<_if; ++i) az[i] = 0.0;
+    acc.zero(_is,_if);
   }
 
   void zero() {
@@ -190,45 +195,23 @@ struct State {
   }
 
   void setacc(const int _is, const int _if, const ThreeVec<T>& _acc) {
-    for (int i=_is; i<_if; ++i) ax[i] = _acc.x[i];
-    for (int i=_is; i<_if; ++i) ay[i] = _acc.y[i];
-    for (int i=_is; i<_if; ++i) az[i] = _acc.z[i];
+    acc.set_from(_is, _if, _acc);
   }
 
   void reorder(const std::vector<int>& _idx) {
-    // see the one in Particles
-    std::vector<T> tmp(n);
-    // positions
-    std::copy(x.begin(), x.end(), tmp.begin());
-    for (int i=0; i<n; ++i) x[i] = tmp[_idx[i]];
-    std::copy(y.begin(), y.end(), tmp.begin());
-    for (int i=0; i<n; ++i) y[i] = tmp[_idx[i]];
-    std::copy(z.begin(), z.end(), tmp.begin());
-    for (int i=0; i<n; ++i) z[i] = tmp[_idx[i]];
-    // velocities
-    std::copy(vx.begin(), vx.end(), tmp.begin());
-    for (int i=0; i<n; ++i) vx[i] = tmp[_idx[i]];
-    std::copy(vy.begin(), vy.end(), tmp.begin());
-    for (int i=0; i<n; ++i) vy[i] = tmp[_idx[i]];
-    std::copy(vz.begin(), vz.end(), tmp.begin());
-    for (int i=0; i<n; ++i) vz[i] = tmp[_idx[i]];
-    // accelerations
-    std::copy(ax.begin(), ax.end(), tmp.begin());
-    for (int i=0; i<n; ++i) ax[i] = tmp[_idx[i]];
-    std::copy(ay.begin(), ay.end(), tmp.begin());
-    for (int i=0; i<n; ++i) ay[i] = tmp[_idx[i]];
-    std::copy(az.begin(), az.end(), tmp.begin());
-    for (int i=0; i<n; ++i) az[i] = tmp[_idx[i]];
+    pos.reorder(_idx);
+    vel.reorder(_idx);
+    acc.reorder(_idx);
   }
 
   void euler_step(const double _dt, const int _ifirst, const int _ilast) {
     // really first order in velocity, midpoint rule for position
-    for (int i=_ifirst; i<_ilast; ++i) x[i] += _dt*(vx[i] + 0.5*_dt*ax[i]);
-    for (int i=_ifirst; i<_ilast; ++i) y[i] += _dt*(vy[i] + 0.5*_dt*ay[i]);
-    for (int i=_ifirst; i<_ilast; ++i) z[i] += _dt*(vz[i] + 0.5*_dt*az[i]);
-    for (int i=_ifirst; i<_ilast; ++i) vx[i] += _dt*ax[i];
-    for (int i=_ifirst; i<_ilast; ++i) vy[i] += _dt*ay[i];
-    for (int i=_ifirst; i<_ilast; ++i) vz[i] += _dt*az[i];
+    for (int i=_ifirst; i<_ilast; ++i) pos.x[i] += _dt*(vel.x[i] + 0.5*_dt*acc.x[i]);
+    for (int i=_ifirst; i<_ilast; ++i) pos.y[i] += _dt*(vel.y[i] + 0.5*_dt*acc.y[i]);
+    for (int i=_ifirst; i<_ilast; ++i) pos.z[i] += _dt*(vel.z[i] + 0.5*_dt*acc.z[i]);
+    for (int i=_ifirst; i<_ilast; ++i) vel.x[i] += _dt*acc.x[i];
+    for (int i=_ifirst; i<_ilast; ++i) vel.y[i] += _dt*acc.y[i];
+    for (int i=_ifirst; i<_ilast; ++i) vel.z[i] += _dt*acc.z[i];
   }
 };
 
@@ -305,7 +288,7 @@ struct Particles {
     std::cout << "\nWriting data to (" << _ofn << ")..." << std::flush;
     std::ofstream OUTFILE(_ofn);
     for (int i=0; i<n; ++i) {
-      OUTFILE << idx[i] << " " << std::setprecision(17) << s.x[i] << " " << s.y[i] << " " << s.z[i] << " " << r[i] << " " << m[i] << " " << s.vx[i] << " " << s.vy[i] << " " << s.vz[i] << "\n";
+      OUTFILE << idx[i] << " " << std::setprecision(17) << s.pos.x[i] << " " << s.pos.y[i] << " " << s.pos.z[i] << " " << r[i] << " " << m[i] << " " << s.vel.x[i] << " " << s.vel.y[i] << " " << s.vel.z[i] << "\n";
     }
     OUTFILE.close();
     std::cout << "done" << std::endl;
@@ -316,7 +299,7 @@ struct Particles {
     std::cout << "\nReading data from (" << _ifn << ")..." << std::flush;
     std::ifstream INFILE(_ifn);
     for (int i=0; i<n; ++i) {
-      INFILE >> idx[i] >> s.x[i] >> s.y[i] >> s.z[i] >> r[i] >> m[i] >> s.vx[i] >> s.vy[i] >> s.vz[i];
+      INFILE >> idx[i] >> s.pos.x[i] >> s.pos.y[i] >> s.pos.z[i] >> r[i] >> m[i] >> s.vel.x[i] >> s.vel.y[i] >> s.vel.z[i];
     }
     INFILE.close();
     std::cout << "done" << std::endl;
@@ -328,8 +311,8 @@ struct Particles {
     s.zero(_trgstart, _trgend);
 
     // run the O(N^2) force summation - all sources on the given targets
-    nbody_serial(0, n, s.x.data(), s.y.data(), s.z.data(), m.data(), r.data(),
-                 _trgstart, _trgend, s.ax.data(), s.ay.data(), s.az.data());
+    nbody_serial(0, n, s.pos.x.data(), s.pos.y.data(), s.pos.z.data(), m.data(), r.data(),
+                 _trgstart, _trgend, s.acc.x.data(), s.acc.y.data(), s.acc.z.data());
 
     // advect the particles
     s.euler_step(_dt, _trgstart, _trgend);
@@ -343,8 +326,8 @@ struct Particles {
     s.setacc(_trgstart, _trgend, _tempacc);
 
     // run the O(N^2) force summation - all sources on the given targets
-    nbody_serial(_trgstart, _trgend, s.x.data(), s.y.data(), s.z.data(), m.data(), r.data(),
-                 _trgstart, _trgend, s.ax.data(), s.ay.data(), s.az.data());
+    nbody_serial(_trgstart, _trgend, s.pos.x.data(), s.pos.y.data(), s.pos.z.data(), m.data(), r.data(),
+                 _trgstart, _trgend, s.acc.x.data(), s.acc.y.data(), s.acc.z.data());
 
     // advect the particles
     s.euler_step(_dt, _trgstart, _trgend);
@@ -380,12 +363,12 @@ struct Particles {
     // let's work on this step's slow particles first
 
     // find accelerations of slow particles from all particles
-    nbody_serial(_trgstart, _trgend, s.x.data(), s.y.data(), s.z.data(), m.data(), r.data(),
-                 _trgstart, ifast, s.ax.data(), s.ay.data(), s.az.data());
+    nbody_serial(_trgstart, _trgend, s.pos.x.data(), s.pos.y.data(), s.pos.z.data(), m.data(), r.data(),
+                 _trgstart, ifast, s.acc.x.data(), s.acc.y.data(), s.acc.z.data());
 
     // find accelerations of fast particles from slow particles
-    nbody_serial(_trgstart, ifast, s.x.data(), s.y.data(), s.z.data(), m.data(), r.data(),
-                 ifast, _trgend, s.ax.data(), s.ay.data(), s.az.data());
+    nbody_serial(_trgstart, ifast, s.pos.x.data(), s.pos.y.data(), s.pos.z.data(), m.data(), r.data(),
+                 ifast, _trgend, s.acc.x.data(), s.acc.y.data(), s.acc.z.data());
 
     // move the slow particles - we're done with them for this step
     s.euler_step(_dt, _trgstart, ifast);
@@ -396,7 +379,7 @@ struct Particles {
     //   note that these arrays are still size n - inefficient
     ThreeVec<T> slowacc(n);
     // then from the slow portion of particles within this step
-    slowacc.add_from(ifast, _trgend, s.ax, s.ay, s.az);
+    slowacc.add_from(ifast, _trgend, s.acc.x, s.acc.y, s.acc.z);
 
     // all fast particles take a half step
     take_step(0.5*_dt, ifast, _trgend, slowacc, _slowfrac, _levels-1);
@@ -411,20 +394,21 @@ struct Particles {
 // Copy one Particles to another with different template param
 //
 template<class F, class T>
+void copy_threevec (const ThreeVec<F>& _from, ThreeVec<T>& _to) {
+  assert(_from.x.size() == _to.x.size() && "Copying from ThreeVec with different n");
+  _to.x = std::vector<T>(_from.x.begin(), _from.x.end());
+  _to.y = std::vector<T>(_from.y.begin(), _from.y.end());
+  _to.z = std::vector<T>(_from.z.begin(), _from.z.end());
+}
+template<class F, class T>
 void copy_particles (const Particles<F>& _from, Particles<T>& _to) {
   assert(_from.n == _to.n && "Copying from Particles with different n");
   _to.idx = std::vector<int>(_from.idx.begin(), _from.idx.end());
   _to.r = std::vector<T>(_from.r.begin(), _from.r.end());
   _to.m = std::vector<T>(_from.m.begin(), _from.m.end());
-  _to.s.x = std::vector<T>(_from.s.x.begin(), _from.s.x.end());
-  _to.s.y = std::vector<T>(_from.s.y.begin(), _from.s.y.end());
-  _to.s.z = std::vector<T>(_from.s.z.begin(), _from.s.z.end());
-  _to.s.vx = std::vector<T>(_from.s.vx.begin(), _from.s.vx.end());
-  _to.s.vy = std::vector<T>(_from.s.vy.begin(), _from.s.vy.end());
-  _to.s.vz = std::vector<T>(_from.s.vz.begin(), _from.s.vz.end());
-  _to.s.ax = std::vector<T>(_from.s.ax.begin(), _from.s.ax.end());
-  _to.s.ay = std::vector<T>(_from.s.ay.begin(), _from.s.ay.end());
-  _to.s.az = std::vector<T>(_from.s.az.begin(), _from.s.az.end());
+  copy_threevec(_from.s.pos, _to.s.pos);
+  copy_threevec(_from.s.vel, _to.s.vel);
+  copy_threevec(_from.s.acc, _to.s.acc);
 }
 
 
@@ -628,15 +612,15 @@ int main(int argc, char *argv[]) {
 
         // find all accelerations
         orig.s.zero();
-        nbody_serial(0, orig.n, orig.s.x.data(), orig.s.y.data(), orig.s.z.data(), orig.m.data(), orig.r.data(),
-                     0, orig.n, orig.s.ax.data(), orig.s.ay.data(), orig.s.az.data());
+        nbody_serial(0, orig.n, orig.s.pos.x.data(), orig.s.pos.y.data(), orig.s.pos.z.data(), orig.m.data(), orig.r.data(),
+                     0, orig.n, orig.s.acc.x.data(), orig.s.acc.y.data(), orig.s.acc.z.data());
 
         // convert to a scalar value
         std::vector<double> val(orig.n);
         // if we use raw acceleration
-        //for (int i=0; i<orig.n; ++i) val[i] = std::sqrt(orig.s.ax[i]*orig.s.ax[i] + orig.s.ay[i]*orig.s.ay[i] + orig.s.az[i]*orig.s.az[i]);
+        //for (int i=0; i<orig.n; ++i) val[i] = std::sqrt(orig.s.acc.x[i]*orig.s.acc.x[i] + orig.s.acc.y[i]*orig.s.acc.y[i] + orig.s.acc.z[i]*orig.s.acc.z[i]);
         // what if we use force as the orderer?
-        //for (int i=0; i<orig.n; ++i) val[i] = orig.m[i] * std::sqrt(orig.s.ax[i]*orig.s.ax[i] + orig.s.ay[i]*orig.s.ay[i] + orig.s.az[i]*orig.s.az[i]);
+        //for (int i=0; i<orig.n; ++i) val[i] = orig.m[i] * std::sqrt(orig.s.acc.x[i]*orig.s.acc.x[i] + orig.s.acc.y[i]*orig.s.acc.y[i] + orig.s.acc.z[i]*orig.s.acc.z[i]);
         // and what about mass? the best for a single direct solve
         for (int i=0; i<orig.n; ++i) val[i] = orig.m[i];
 
@@ -715,7 +699,7 @@ int main(int argc, char *argv[]) {
         acc_from_slower.zero();
 
         // step all particles
-        src.take_step(dt, 0, src.n, acc_from_slower, 0.3, num_levels);
+        src.take_step(dt, 0, src.n, acc_from_slower, 0.4, num_levels);
 #endif
 
         auto end = std::chrono::steady_clock::now();
@@ -744,9 +728,9 @@ int main(int argc, char *argv[]) {
         printf("\nat end (t=%g), some positions\n", nsteps*dt);
 
         // write positions
-        for (int i=src.n/10; i<src.n; i+=src.n/5) printf("   particle %d  fp32 %10.6f %10.6f %10.6f  fp64 %10.6f %10.6f %10.6f\n",i,src.s.x[i],src.s.y[i],src.s.z[i],orig.s.x[i],orig.s.y[i],orig.s.z[i]);
+        for (int i=src.n/10; i<src.n; i+=src.n/5) printf("   particle %d  fp32 %10.6f %10.6f %10.6f  fp64 %10.6f %10.6f %10.6f\n",i,src.s.pos.x[i],src.s.pos.y[i],src.s.pos.z[i],orig.s.pos.x[i],orig.s.pos.y[i],orig.s.pos.z[i]);
         // write accelerations
-        //for (int i=0; i<2; i++) printf("   particle %d  fp32 %10.4f %10.4f %10.4f  fp64 %10.4f %10.4f %10.4f\n",i,src.s.ax[i],src.s.ay[i],src.s.az[i],orig.s.ax[i],orig.s.ay[i],orig.s.az[i]);
+        //for (int i=0; i<2; i++) printf("   particle %d  fp32 %10.4f %10.4f %10.4f  fp64 %10.4f %10.4f %10.4f\n",i,src.s.acc.x[i],src.s.acc.y[i],src.s.acc.z[i],orig.s.acc.x[i],orig.s.acc.y[i],orig.s.acc.z[i]);
         printf("\n");
     }
 
@@ -772,16 +756,16 @@ int main(int argc, char *argv[]) {
         // write file for error analysis (velocity)
         if (not errorfile.empty()) {
             for (int i=0; i<orig.n; ++i) {
-                denom += std::pow(orig.s.vx[i],2) + std::pow(orig.s.vy[i],2) + std::pow(orig.s.vz[i],2);
+                denom += std::pow(orig.s.vel.x[i],2) + std::pow(orig.s.vel.y[i],2) + std::pow(orig.s.vel.z[i],2);
             }
             std::cout << "\nWriting error to (" << errorfile << ")..." << std::flush;
             std::ofstream OUTFILE(errorfile);
             for (int i=0; i<orig.n; ++i) {
-                const double posmag = std::sqrt(std::pow(src.s.x[i],2) + std::pow(src.s.y[i],2) + std::pow(src.s.z[i],2));
-                const double velmag = std::sqrt(std::pow(src.s.vx[i],2) + std::pow(src.s.vy[i],2) + std::pow(src.s.vz[i],2));
-                const double accmag = std::sqrt(std::pow(src.s.ax[i],2) + std::pow(src.s.ay[i],2) + std::pow(src.s.az[i],2));
+                const double posmag = std::sqrt(std::pow(src.s.pos.x[i],2) + std::pow(src.s.pos.y[i],2) + std::pow(src.s.pos.z[i],2));
+                const double velmag = std::sqrt(std::pow(src.s.vel.x[i],2) + std::pow(src.s.vel.y[i],2) + std::pow(src.s.vel.z[i],2));
+                const double accmag = std::sqrt(std::pow(src.s.acc.x[i],2) + std::pow(src.s.acc.y[i],2) + std::pow(src.s.acc.z[i],2));
                 const int oid = src.idx[i];
-                double velerr = std::pow(orig.s.vx[oid]-src.s.vx[i],2) + std::pow(orig.s.vy[oid]-src.s.vy[i],2) + std::pow(orig.s.vz[oid]-src.s.vz[i],2);
+                double velerr = std::pow(orig.s.vel.x[oid]-src.s.vel.x[i],2) + std::pow(orig.s.vel.y[oid]-src.s.vel.y[i],2) + std::pow(orig.s.vel.z[oid]-src.s.vel.z[i],2);
                 velerr = std::sqrt(orig.n*velerr/denom);
                 OUTFILE << i << " " << std::setprecision(8) << posmag << " " << velmag << " " << accmag << " " << src.r[i] << " " << src.m[i] << " " << velerr << "\n";
             }
@@ -796,10 +780,10 @@ int main(int argc, char *argv[]) {
         maxerr = 0.0;
         for (int i=0; i<orig.n; ++i) {
             const int oid = src.idx[i];
-            const double thiserr = std::pow(orig.s.x[oid]-src.s.x[i],2) + std::pow(orig.s.y[oid]-src.s.y[i],2) + std::pow(orig.s.z[oid]-src.s.z[i],2);
+            const double thiserr = std::pow(orig.s.pos.x[oid]-src.s.pos.x[i],2) + std::pow(orig.s.pos.y[oid]-src.s.pos.y[i],2) + std::pow(orig.s.pos.z[oid]-src.s.pos.z[i],2);
             if (thiserr > maxerr) maxerr = thiserr;
             numer += thiserr;
-            denom += std::pow(orig.s.x[i],2) + std::pow(orig.s.y[i],2) + std::pow(orig.s.z[i],2);
+            denom += std::pow(orig.s.pos.x[i],2) + std::pow(orig.s.pos.y[i],2) + std::pow(orig.s.pos.z[i],2);
         }
         if (iproc==0) printf("\t\t(%.3e / %.3e mean/max RMS error vs. dble, position)\n", std::sqrt(numer/denom), std::sqrt(orig.n*maxerr/denom));
 
@@ -808,10 +792,10 @@ int main(int argc, char *argv[]) {
         maxerr = 0.0;
         for (int i=0; i<orig.n; ++i) {
             const int oid = src.idx[i];
-            const double thiserr = std::pow(orig.s.vx[oid]-src.s.vx[i],2) + std::pow(orig.s.vy[oid]-src.s.vy[i],2) + std::pow(orig.s.vz[oid]-src.s.vz[i],2);
+            const double thiserr = std::pow(orig.s.vel.x[oid]-src.s.vel.x[i],2) + std::pow(orig.s.vel.y[oid]-src.s.vel.y[i],2) + std::pow(orig.s.vel.z[oid]-src.s.vel.z[i],2);
             if (thiserr > maxerr) maxerr = thiserr;
             numer += thiserr;
-            denom += std::pow(orig.s.vx[i],2) + std::pow(orig.s.vy[i],2) + std::pow(orig.s.vz[i],2);
+            denom += std::pow(orig.s.vel.x[i],2) + std::pow(orig.s.vel.y[i],2) + std::pow(orig.s.vel.z[i],2);
         }
         if (iproc==0) printf("\t\t(%.3e / %.3e mean/max RMS error vs. dble, velocity)\n", std::sqrt(numer/denom), std::sqrt(orig.n*maxerr/denom));
 
