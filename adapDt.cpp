@@ -377,11 +377,64 @@ struct Particles {
   }
 
   void init_disk(std::mt19937 _gen) {
-    std::uniform_real_distribution<> zmean_mass(0.0, 1.0);
-    for (int i=0; i<n; ++i) m[i] = zmean_mass(_gen);
-    const T rad = 1.0 / std::sqrt((T)n);
-    for (int i=0; i<n; ++i) r[i] = rad;
-    s.init_rand(_gen);
+    // multiple rings extending to r=1 from origin, in xy plane (z small)
+    // how many rings?
+    const int nrings = (int)sqrt((T)n);
+    // how much mass and area per ring?
+    std::vector<T> mpr(nrings);
+    T msum = 0.0;
+    T asum = 0.0;
+    for (int i=0; i<nrings; ++i) {
+      mpr[i] = 1.0 / (i+0.5);
+      msum += mpr[i];
+      asum += (i+0.5);
+    }
+    for (int i=0; i<nrings; ++i) mpr[i] /= msum;
+    //std::cout << "n is " << n << " and asum is " << asum << "\n";
+    // loop over rings, adding particles as you go
+    int nremain = n;
+    int pc = 0;
+    const T twopi = 2.0 * 3.14159265358979;
+    std::uniform_real_distribution<> thetashift(0.0, 1.0);
+    for (int i=0; i<nrings; ++i) {
+      int nparts = std::max(2, std::min(nremain, (int)(0.5 + n*(i+0.5)/asum)));
+      if (i==nrings-1) nparts = nremain;
+      const T rad = 1.0 * (i+0.5) / nrings;
+      std::cout << "ring " << i << " at rad " << rad << " has mass " << mpr[i] << " and " << nparts << " particles\n";
+      nremain -= nparts;
+      const T tshift = thetashift(_gen);
+      for (int j=0; j<nparts; ++j) {
+        m[pc] = mpr[i] / nparts;
+        r[pc] = 0.25 / nrings;
+        const T theta = twopi*(j+tshift)/nparts;
+        s.pos.x[pc] = rad * std::cos(theta);
+        s.pos.y[pc] = rad * std::sin(theta);
+        s.pos.z[pc] = 0.0;
+        ++pc;
+      }
+    }
+
+    // and all vels and accs are zero
+    s.vel.zero();
+    s.acc.zero();
+
+    // now compute accelerations on all particles
+    nbody_serial<T>(0, n, s.pos.x.data(), s.pos.y.data(), s.pos.z.data(), m.data(), r.data(),
+                    0, n, s.acc.x.data(), s.acc.y.data(), s.acc.z.data());
+
+    // set velocities to counteract inward acceleration (v^2 / r)
+    std::uniform_real_distribution<> zbobble(-0.01, 0.01);
+    for (int i=0; i<n; ++i) {
+      const T rad = std::sqrt(std::pow(s.pos.x[i],2) + std::pow(s.pos.y[i],2) + std::pow(s.pos.z[i],2));
+      const T accmag = std::sqrt(std::pow(s.acc.x[i],2) + std::pow(s.acc.y[i],2) + std::pow(s.acc.z[i],2));
+      const T velmag = std::sqrt(accmag*rad);
+      //std::cout << "part " << i << " at r=" << rad << " has accel " << accmag << " so vel is " << velmag << "\n";
+      // bobble the z coordinate a little
+      s.pos.z[i] = zbobble(_gen);
+      // set the planar velocities now
+      s.vel.x[i] = velmag * (-s.pos.y[i]/rad);
+      s.vel.y[i] = velmag * (s.pos.x[i]/rad);
+    }
   }
 
   void deep_copy(const Particles& _from) {
@@ -598,7 +651,7 @@ int main(int argc, char *argv[]) {
     std::string outfile;
     std::string comparefile;
     std::string errorfile;
-    ParticleDistribution distro = cube;
+    ParticleDistribution distro = disk;
 
     for (int i=1; i<argc; i++) {
         if (strncmp(argv[i], "-n=", 3) == 0) {

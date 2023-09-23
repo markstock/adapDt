@@ -10,7 +10,7 @@ With `g++` installed, you can simply run:
 Generate and save a re-usable set of particles, find the "true" solution, and compare to it later:
 
 	./adapDt -n=10000 -s=0 -o=initial.dat
-	./adapDt -n=10000 -s=1 -i=initial.dat -o=truesoln.dat
+	./adapDt -n=10000 -s=10 -i=initial.dat -true -o=truesoln.dat
 	./adapDt -n=10000 -s=10 -i=initial.dat -c=truesoln.dat
 
 ## Description
@@ -21,8 +21,7 @@ the work faster with similar total error.
 # To Do
 * Keep the MPI version up-to-date
 * Support higher-order forward integrators (Verlet or AB2 come to mind)
-* Try out on a more realistic mass distribution (flat disk)
 * Make the slow-fast splits solution-adaptive (means finding a better estimate of potential error)
 * Pull out the classes/structs to new header files
 * Consider passing one std::span (c++20) instead of 3 separate values
-* Compute jerk magnitude as a proxy for error
+* Use jerk magnitude as a proxy for error
