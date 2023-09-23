@@ -156,3 +156,82 @@ Mass vs. count is M^-1 relationship?
 https://en.wikipedia.org/wiki/Initial_mass_function
 
 Also would like to implement this for Verlet integrator
+
+
+# Performance of a disk with mass focused on the center
+
+# Make the disk
+./adapDt.bin -n=1000 -s=0 -o=disk1kinit.dat
+# Find the "true" solution
+./adapDt.bin -n=1000 -i=disk1kinit.dat -dt=0.001 -end=1.0 -true -o=disk1ktruet1.dat
+# run test and compare to true, writing out test
+./adapDt.bin -n=1000 -i=disk1kinit.dat -dt=0.001 -end=1.0 -c=disk1ktruet1.dat -o=disk1ktestt1.dat
+# more tests
+./adapDt.bin -n=1000 -i=disk1kinit.dat -dt=0.01 -end=1.0 -c=disk1ktruet1.dat
+./adapDt.bin -n=1000 -i=disk1kinit.dat -dt=0.001 -end=1.0 -c=disk1ktruet1.dat
+./adapDt.bin -n=1000 -i=disk1kinit.dat -dt=0.0001 -end=1.0 -c=disk1ktruet1.dat
+
+error vs level
+dt		levs	time	pos err					vel err
+0.001	1		3.2319	3.963e-01 / 1.819e+00	7.715e-01 / 5.163e+00
+0.001	4		6.7788	3.620e-01 / 2.442e+00	7.068e-01 / 3.839e+00
+0.0001	1		24.106	4.224e-01 / 2.523e+00	8.258e-01 / 4.676e+00
+0.0001	4		57.409	2.053e-01 / 1.773e+00	6.837e-01 / 5.879e+00
+0.00001	1		261.40	1.695e-01 / 1.933e+00	5.362e-01 / 3.797e+00
+
+# maybe only go to 0.01 end time?
+
+# make the disk and sort on jerk magnitude
+./adapDt.bin -n=1000 -s=0 -o=disk1kinit.dat
+./adapDt.bin -n=1000 -i=disk1kinit.dat -dt=0.000001 -end=0.01 -true -o=disk1ktruep01.dat
+./adapDt.bin -n=1000 -i=disk1kinit.dat -dt=0.000001 -end=0.1 -true -o=disk1ktruep1.dat
+# run tests vs that
+./adapDt.bin -n=1000 -i=disk1kinit.dat -dt=0.0001 -end=0.1 -c=disk1ktruep1.dat
+
+error vs level (tp)
+dt		levs	time	pos err					vel err
+0.01	1		0.0387	2.223e-02 / 2.945e-01	4.296e-01 / 8.542e+00
+0.001	1		0.2539	6.799e-03 / 1.060e-01	1.827e-01 / 3.623e+00
+0.0001	1		2.528	9.062e-04 / 1.413e-02	8.143e-02 / 2.256e+00
+0.00001	1		26.52	1.275e-04 / 2.528e-03	7.231e-03 / 1.482e-01
+0.001	2		0.3632	4.057e-03 / 6.219e-02	1.157e-01 / 2.464e+00
+0.001	3		0.4178	2.623e-03 / 4.322e-02	9.694e-02 / 1.686e+00
+0.001	4		0.5103	1.254e-03 / 2.174e-02	1.059e-01 / 2.871e+00
+0.001	5		0.6774	5.328e-04 / 7.259e-03	4.477e-02 / 1.234e+00
+0.001	6		0.6922	3.317e-04 / 5.265e-03	2.206e-02 / 5.197e-01
+0.001	7		1.015	1.942e-04 / 3.643e-03	1.139e-02 / 2.241e-01
+0.001	8		1.701	9.703e-05 / 1.949e-03	5.230e-03 / 1.015e-01	better than 0.00001 at 26 sec!
+0.01	8		0.2355	6.970e-04 / 1.053e-02	5.949e-02 / 1.637e+00
+0.01	9		0.3232	5.194e-04 / 8.675e-03	3.057e-02 / 6.847e-01
+0.01	10		0.5632	4.097e-04 / 6.758e-03	2.651e-02 / 6.734e-01	can't get much better with 1k parts
+
+# now make a larger simulation on zen0
+./adapDt.bin -n=10000 -s=0 -o=disk10kinit.dat
+./adapDt.bin -n=10000 -i=disk10kinit.dat -dt=0.000001 -end=0.01 -true -o=disk10ktruep01.dat
+# true solution needs 10000 parts x 10000 parts x 10000 steps x 22 flops = 22 TF and 266 sec
+./adapDt.bin -n=10000 -i=disk10kinit.dat -dt=0.01 -end=0.01 -l=1 -c=disk10ktruep01.dat
+
+error vs level (zen0)
+dt		levs	time	pos err					vel err
+0.01	1		0.0453	1.312e-03 / 8.750e-02	1.723e-01 / 9.605e+00
+0.001	1		0.2635	2.517e-04 / 1.944e-02	3.832e-02 / 3.069e+00
+0.0001	1		2.892	4.742e-05 / 4.335e-03	9.496e-03 / 8.913e-01
+0.00005	1		5.552	2.527e-05 / 2.329e-03	5.231e-03 / 4.934e-01
+0.00002	1		13.22	1.030e-05 / 9.529e-04	2.185e-03 / 2.067e-01
+0.00001	1		26.59	5.326e-06 / 4.599e-04	1.063e-03 / 1.007e-01
+0.000005	1	53.18	7.384e-06 / 2.064e-04	4.791e-04 / 4.540e-02
+0.01	3		0.06263	5.062e-04 / 3.658e-02	5.600e-02 / 3.371e+00
+0.01	5		0.06833	1.848e-04 / 1.521e-02	3.142e-02 / 2.742e+00
+0.01	7		0.05608	6.908e-05 / 6.253e-03	1.344e-02 / 1.255e+00
+0.01	9		0.1413	2.001e-05 / 1.844e-03	4.171e-03 / 3.936e-01
+0.01	11		0.1669	5.169e-06 / 4.473e-04	1.050e-03 / 9.757e-02	same as 26.6 sec case (160x speedup)
+0.01	13		0.2987	2.320e-06 / 6.989e-05	3.394e-04 / 1.683e-02
+0.001	3		0.6306	9.953e-05 / 8.855e-03	1.870e-02 / 1.729e+00
+0.001	5		0.4015	3.111e-05 / 2.861e-03	6.380e-03 / 6.011e-01
+0.001	7		0.5612	7.979e-06 / 7.395e-04	1.701e-03 / 1.610e-01
+0.001	9		1.244	1.628e-06 / 1.503e-04	3.495e-04 / 3.310e-02	better than the 53s case (43x speedup)
+0.001	11		1.676	2.103e-07 / 2.641e-06	2.057e-05 / 4.022e-04
+
+# now can we make it adaptive?
+# i.e. at every step, recompute jerk magnitude and reset slow-fast boundary
+
