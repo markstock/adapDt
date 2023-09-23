@@ -900,7 +900,7 @@ int main(int argc, char *argv[]) {
         acc_from_slower.zero();
 
         // step all particles
-        src.take_step(dt, 0, src.n, acc_from_slower, 0.4, num_levels);
+        src.take_step(dt, 0, src.n, acc_from_slower, 0.5, num_levels);
 #endif
 
         auto end = std::chrono::steady_clock::now();
