@@ -300,9 +300,10 @@ template <class T>
 struct State {
   int n;
   ThreeVec<T> pos, vel, acc;
+  std::vector<T> jerk;
 
   // constructor needs a size
-  State(const int _n) : n(_n), pos(_n), vel(_n), acc(_n) {}
+  State(const int _n) : n(_n), pos(_n), vel(_n), acc(_n), jerk(_n) {}
 
   // destructor
   ~State() { }
@@ -315,6 +316,7 @@ struct State {
 
   void zero(const int _is, const int _if) {
     acc.zero(_is,_if);
+    for (int i=_is; i<_if; ++i) jerk[i] = 0.0;
   }
 
   void zero() {
@@ -329,6 +331,9 @@ struct State {
     pos.reorder(_idx);
     vel.reorder(_idx);
     acc.reorder(_idx);
+    std::vector<T> tmp(_idx.size());
+    std::copy(jerk.begin(), jerk.end(), tmp.begin());
+    for (int i=0; i<n; ++i) jerk[i] = tmp[_idx[i]];
   }
 
   void euler_step(const double _dt, const int _ifirst, const int _ilast) {
@@ -732,12 +737,6 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    // median acceleration scales linearly with N
-    //dt = 100.0 / (double)n_in;
-
-    double truedt = 0.00001;
-    int truensteps = 0.5 + endtime / truedt;
-
 #ifdef USE_MPI
     (void) MPI_Init(&argc, &argv);
     (void) MPI_Comm_size(MPI_COMM_WORLD, &nproc);
@@ -812,8 +811,8 @@ int main(int argc, char *argv[]) {
 
         // find all accelerations
         orig.s.zero();
-        nbody_serial(0, orig.n, orig.s.pos.x.data(), orig.s.pos.y.data(), orig.s.pos.z.data(), orig.m.data(), orig.r.data(),
-                     0, orig.n, orig.s.acc.x.data(), orig.s.acc.y.data(), orig.s.acc.z.data());
+        nbody_serial_accjerk(0, orig.n, orig.s.pos.x.data(), orig.s.pos.y.data(), orig.s.pos.z.data(), orig.m.data(), orig.r.data(),
+                     0, orig.n, orig.s.acc.x.data(), orig.s.acc.y.data(), orig.s.acc.z.data(), orig.s.jerk.data());
 
         // convert to a scalar value
         std::vector<double> val(orig.n);
@@ -822,7 +821,9 @@ int main(int argc, char *argv[]) {
         // what if we use force as the orderer?
         //for (int i=0; i<orig.n; ++i) val[i] = orig.m[i] * std::sqrt(orig.s.acc.x[i]*orig.s.acc.x[i] + orig.s.acc.y[i]*orig.s.acc.y[i] + orig.s.acc.z[i]*orig.s.acc.z[i]);
         // and what about mass? the best for a single direct solve
-        for (int i=0; i<orig.n; ++i) val[i] = orig.m[i];
+        //for (int i=0; i<orig.n; ++i) val[i] = orig.m[i];
+        // try jerk
+        for (int i=0; i<orig.n; ++i) val[i] = orig.s.jerk[i];
 
         // sort, and keep the re-ordering
         std::vector<int> idx(orig.n);
@@ -913,7 +914,10 @@ int main(int argc, char *argv[]) {
     // get the true solution somehow
     if (comparefile.empty()) {
         printf("\nRunning 'true' solution");
+
         // run the "true" solution some number of steps
+        double truedt = (runtrueonly ? dt : 0.00001);
+        int truensteps = 0.5 + endtime / truedt;
         for (int istep = 0; istep < truensteps; ++istep) {
             std::cout << "." << std::flush;
             orig.take_step(truedt, 0, orig.n);
