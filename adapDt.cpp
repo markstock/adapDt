@@ -516,7 +516,7 @@ struct Particles {
                   const ThreeVec<T>& _tempacc) {
 
     // set the accelerations from input (assume it's from all particles 0.._trgstart
-    s.setacc(_trgstart, _trgend, _tempacc);
+    s.acc.set_from(_trgstart, _trgend, _tempacc);
 
     // run the O(N^2) force summation - all sources on the given targets
     nbody_serial(_trgstart, _trgend, s.pos.x.data(), s.pos.y.data(), s.pos.z.data(), m.data(), r.data(),
@@ -536,7 +536,8 @@ struct Particles {
     // where are we?
     static int max_levels = _levels;
     for (int i=max_levels-_levels; i>0; --i) std::cout << "  ";
-    std::cout << "  stepping " << _trgstart << " to " << _trgend-1 << " by " << _dt << " at level " << _levels << std::endl;
+    //std::cout << "  stepping " << _trgstart << " to " << _trgend-1 << " by " << _dt << " at level " << _levels << std::endl;
+    std::cout << "  stepping " << _trgstart << " to " << _trgend-1 << " by " << _dt << " at level " << _levels << " with temp " << _tempacc.x[9999] << " saved " << s.acc.x[9999] << std::endl;
 
     // if there are no more levels to go, run the easy one
     if (_levels == 1) {
@@ -547,26 +548,26 @@ struct Particles {
     // we're doing at least a 2-level time stepping
     assert(_slowfrac > 0.0 and _slowfrac < 1.0 and "_slowfrac is not 0..1");
 
-    // set accelerations of all target particles with passed-in values (all slower)
-    s.setacc(_trgstart, _trgend, _tempacc);
-
     // find cutoff between slow (low index) and fast (higher index) particles
     const int ifast = _trgstart + (_trgend-_trgstart)*_slowfrac;
 
     // let's work on this step's slow particles first
 
+    // set accelerations of slow target particles with passed-in values (all slower)
+    s.acc.set_from(_trgstart, ifast, _tempacc);
+
     // find accelerations of slow particles from all particles
     nbody_serial(_trgstart, _trgend, s.pos.x.data(), s.pos.y.data(), s.pos.z.data(), m.data(), r.data(),
                  _trgstart, ifast, s.acc.x.data(), s.acc.y.data(), s.acc.z.data());
 
-    // find accelerations of fast particles from slow particles
+    // now focus on the fast particles
+
+    // set accelerations of fast target particles with passed-in values (all slower)
+    s.acc.set_from(ifast, _trgend, _tempacc);
+
+    // find accelerations of fast particles from slow particles (using original positions of slow parts)
     nbody_serial(_trgstart, ifast, s.pos.x.data(), s.pos.y.data(), s.pos.z.data(), m.data(), r.data(),
                  ifast, _trgend, s.acc.x.data(), s.acc.y.data(), s.acc.z.data());
-
-    // move the slow particles - we're done with them for this step
-    s.euler_step(_dt, _trgstart, ifast);
-
-    // now focus on the fast particles
 
     // save the accelerations on all fast particles from all slow particles
     //   note that these arrays are still size n - inefficient
@@ -579,6 +580,9 @@ struct Particles {
 
     // all fast particles take a half step again
     take_step(0.5*_dt, ifast, _trgend, slowacc, _slowfrac, _levels-1);
+
+    // before returning, move the slow particles
+    s.euler_step(_dt, _trgstart, ifast);
 
   }
 };
