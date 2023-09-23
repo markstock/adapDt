@@ -21,6 +21,8 @@ the work faster with similar total error.
 # To Do
 * Keep the MPI version up-to-date
 * Support higher-order forward integrators (Verlet or AB2 come to mind)
-* Try out on a more realistic mass distribution
+* Try out on a more realistic mass distribution (flat disk)
 * Make the slow-fast splits solution-adaptive (means finding a better estimate of potential error)
-
+* Pull out the classes/structs to new header files
+* Consider passing one std::span (c++20) instead of 3 separate values
+* Compute jerk magnitude as a proxy for error
