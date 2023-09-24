@@ -536,8 +536,8 @@ struct Particles {
     // where are we?
     static int max_levels = _levels;
     for (int i=max_levels-_levels; i>0; --i) std::cout << "  ";
-    //std::cout << "  stepping " << _trgstart << " to " << _trgend-1 << " by " << _dt << " at level " << _levels << std::endl;
-    std::cout << "  stepping " << _trgstart << " to " << _trgend-1 << " by " << _dt << " at level " << _levels << " with temp " << _tempacc.x[9999] << " saved " << s.acc.x[9999] << std::endl;
+    std::cout << "  stepping " << _trgstart << " to " << _trgend-1 << " by " << _dt << " at level " << _levels << std::endl;
+    //std::cout << "  stepping " << _trgstart << " to " << _trgend-1 << " by " << _dt << " at level " << _levels << " with temp " << _tempacc.x[9999] << " saved " << s.acc.x[9999] << std::endl;
 
     // if there are no more levels to go, run the easy one
     if (_levels == 1) {
@@ -564,27 +564,41 @@ struct Particles {
 
     // set accelerations of fast target particles with passed-in values (all slower)
     s.acc.set_from(ifast, _trgend, _tempacc);
+    //std::cout << "           A tempacc " << _tempacc.x[9999] << " saved " << s.acc.x[9999] << " at lev " << _levels << std::endl;
 
     // find accelerations of fast particles from slow particles (using original positions of slow parts)
     nbody_serial(_trgstart, ifast, s.pos.x.data(), s.pos.y.data(), s.pos.z.data(), m.data(), r.data(),
                  ifast, _trgend, s.acc.x.data(), s.acc.y.data(), s.acc.z.data());
+    //std::cout << "           B tempacc " << _tempacc.x[9999] << " saved " << s.acc.x[9999] << " at lev " << _levels << std::endl;
 
     // save the accelerations on all fast particles from all slow particles
     //   note that these arrays are still size n - inefficient
     ThreeVec<T> slowacc(n);
     // then from the slow portion of particles within this step
-    slowacc.add_from(ifast, _trgend, s.acc.x, s.acc.y, s.acc.z);
+    slowacc.set_from(ifast, _trgend, s.acc);
+    // now slowacc holds the accelerations on all fast particles from all slower particles
+    //std::cout << "           C slowacc " << slowacc.x[9999] << " saved " << s.acc.x[9999] << " at lev " << _levels << std::endl;
 
     // all fast particles take a half step
     take_step(0.5*_dt, ifast, _trgend, slowacc, _slowfrac, _levels-1);
+    //std::cout << "           D slowacc " << slowacc.x[9999] << " saved " << s.acc.x[9999] << " at lev " << _levels << std::endl;
 
     // all fast particles take a half step again
     take_step(0.5*_dt, ifast, _trgend, slowacc, _slowfrac, _levels-1);
+    //std::cout << "           E slowacc " << slowacc.x[9999] << " saved " << s.acc.x[9999] << " at lev " << _levels << std::endl;
 
     // before returning, move the slow particles
     s.euler_step(_dt, _trgstart, ifast);
 
   }
+
+  // a step where we split a range of targets into subranges of slow and fast particles,
+  //   running one step of the slow particles and two steps of the fast particles
+  // will re-sort all particles into slow and fast based on calculation of jerk magnitude
+  //
+  //void take_step (const double _dt, const int _trgstart, const int _trgend,
+  //                const ThreeVec<T>& _tempacc, const std::vector<T>& _tempjerk, const int _levels) {
+
 };
 
 //
