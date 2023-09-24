@@ -258,10 +258,11 @@ struct ThreeVec {
     zero(0, x.size());
   }
 
-  void set_from(const int _is, const int _if, const ThreeVec<T>& _val) {
-    for (int i=_is; i<_if; ++i) x[i] = _val.x[i];
-    for (int i=_is; i<_if; ++i) y[i] = _val.y[i];
-    for (int i=_is; i<_if; ++i) z[i] = _val.z[i];
+  void set_from(const int _is, const int _if, const ThreeVec<T>& _val, const int _vs, const int _vf) {
+    //printf("copying from %d - %d (of %ld) into %d - %d (of %ld)\n", _vs, _vf, _val.x.size(), _is, _if, x.size());
+    for (int i=_is; i<_if; ++i) x[i] = _val.x[_vs+i-_is];
+    for (int i=_is; i<_if; ++i) y[i] = _val.y[_vs+i-_is];
+    for (int i=_is; i<_if; ++i) z[i] = _val.z[_vs+i-_is];
   }
 
   void add_from(const int _is, const int _if, const ThreeVec<T>& _val) {
@@ -321,10 +322,6 @@ struct State {
 
   void zero() {
     zero(0, n);
-  }
-
-  void setacc(const int _is, const int _if, const ThreeVec<T>& _acc) {
-    acc.set_from(_is, _if, _acc);
   }
 
   void reorder(const std::vector<int>& _idx) {
@@ -516,7 +513,7 @@ struct Particles {
                   const ThreeVec<T>& _tempacc) {
 
     // set the accelerations from input (assume it's from all particles 0.._trgstart
-    s.acc.set_from(_trgstart, _trgend, _tempacc);
+    s.acc.set_from(_trgstart, _trgend, _tempacc, 0, _trgend-_trgstart);
 
     // run the O(N^2) force summation - all sources on the given targets
     nbody_serial(_trgstart, _trgend, s.pos.x.data(), s.pos.y.data(), s.pos.z.data(), m.data(), r.data(),
@@ -535,8 +532,8 @@ struct Particles {
 
     // where are we?
     static int max_levels = _levels;
-    for (int i=max_levels-_levels; i>0; --i) std::cout << "  ";
-    std::cout << "  stepping " << _trgstart << " to " << _trgend-1 << " by " << _dt << " at level " << _levels << std::endl;
+    //for (int i=max_levels-_levels; i>0; --i) std::cout << "  ";
+    //std::cout << "  stepping " << _trgstart << " to " << _trgend-1 << " by " << _dt << " at level " << _levels << std::endl;
     //std::cout << "  stepping " << _trgstart << " to " << _trgend-1 << " by " << _dt << " at level " << _levels << " with temp " << _tempacc.x[9999] << " saved " << s.acc.x[9999] << std::endl;
 
     // if there are no more levels to go, run the easy one
@@ -554,7 +551,7 @@ struct Particles {
     // let's work on this step's slow particles first
 
     // set accelerations of slow target particles with passed-in values (all slower)
-    s.acc.set_from(_trgstart, ifast, _tempacc);
+    s.acc.set_from(_trgstart, ifast, _tempacc, 0, ifast-_trgstart);
 
     // find accelerations of slow particles from all particles
     nbody_serial(_trgstart, _trgend, s.pos.x.data(), s.pos.y.data(), s.pos.z.data(), m.data(), r.data(),
@@ -563,7 +560,7 @@ struct Particles {
     // now focus on the fast particles
 
     // set accelerations of fast target particles with passed-in values (all slower)
-    s.acc.set_from(ifast, _trgend, _tempacc);
+    s.acc.set_from(ifast, _trgend, _tempacc, ifast-_trgstart, _trgend-_trgstart);
     //std::cout << "           A tempacc " << _tempacc.x[9999] << " saved " << s.acc.x[9999] << " at lev " << _levels << std::endl;
 
     // find accelerations of fast particles from slow particles (using original positions of slow parts)
@@ -572,10 +569,9 @@ struct Particles {
     //std::cout << "           B tempacc " << _tempacc.x[9999] << " saved " << s.acc.x[9999] << " at lev " << _levels << std::endl;
 
     // save the accelerations on all fast particles from all slow particles
-    //   note that these arrays are still size n - inefficient
-    ThreeVec<T> slowacc(n);
+    ThreeVec<T> slowacc(_trgend-ifast);
     // then from the slow portion of particles within this step
-    slowacc.set_from(ifast, _trgend, s.acc);
+    slowacc.set_from(0, _trgend-ifast, s.acc, ifast, _trgend);
     // now slowacc holds the accelerations on all fast particles from all slower particles
     //std::cout << "           C slowacc " << slowacc.x[9999] << " saved " << s.acc.x[9999] << " at lev " << _levels << std::endl;
 
