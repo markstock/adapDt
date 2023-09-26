@@ -755,7 +755,7 @@ enum ParticleDistribution {
 
 int main(int argc, char *argv[]) {
 
-    bool presort = false;
+    bool presort = true;
     bool adaptive = false;
     bool runtrueonly = false;
     int num_levels = 1;
@@ -765,6 +765,7 @@ int main(int argc, char *argv[]) {
     int iproc = 0;
     double dt = 0.001;
     double endtime = 0.01;
+    float slowfrac = 0.5;
     std::string infile;
     std::string outfile;
     std::string comparefile;
@@ -821,6 +822,15 @@ int main(int argc, char *argv[]) {
             endtime = num;
             nsteps = 0.5 + endtime / dt;
 
+        } else if (strncmp(argv[i], "-frac=", 6) == 0) {
+            double num = atof(argv[i] + 6);
+            if (num < 0.0) usage();
+            slowfrac = num;
+        } else if (strncmp(argv[i], "-frac", 5) == 0) {
+            int num = atof(argv[++i]);
+            if (num < 0.0) usage();
+            slowfrac = num;
+
         } else if (strncmp(argv[i], "-i=", 3) == 0) {
             infile = std::string(argv[i]);
             infile.erase(0,3);
@@ -847,6 +857,7 @@ int main(int argc, char *argv[]) {
 
         } else if (strncmp(argv[i], "-adapt", 2) == 0) {
             adaptive = true;
+            presort = false;
         } else if (strncmp(argv[i], "-true", 2) == 0) {
             runtrueonly = true;
         }
@@ -1038,7 +1049,7 @@ int main(int argc, char *argv[]) {
         if (adaptive) {
             src.take_step(dt, 0, src.n, acc_from_slower, jerk_from_slower, num_levels);
         } else {
-            src.take_step(dt, 0, src.n, acc_from_slower, 0.5, num_levels);
+            src.take_step(dt, 0, src.n, acc_from_slower, slowfrac, num_levels);
         }
 #endif
 
