@@ -317,11 +317,18 @@ struct State {
 
   void zero(const int _is, const int _if) {
     acc.zero(_is,_if);
-    for (int i=_is; i<_if; ++i) jerk[i] = 0.0;
   }
 
   void zero() {
     zero(0, n);
+  }
+
+  void zero_jerk(const int _is, const int _if) {
+    for (int i=_is; i<_if; ++i) jerk[i] = 0.0;
+  }
+
+  void zero_jerk() {
+    zero_jerk(0, n);
   }
 
   void reorder(const std::vector<int>& _idx) {
@@ -495,7 +502,9 @@ struct Particles {
     std::cout << "done" << std::endl;
   }
 
+  //
   // simple step: all source particles affect given target particles
+  //
   void take_step (const double _dt, const int _trgstart, const int _trgend) {
     // zero the accelerations
     s.zero(_trgstart, _trgend);
@@ -508,7 +517,9 @@ struct Particles {
     s.euler_step(_dt, _trgstart, _trgend);
   }
 
+  //
   // final step: given source particles affect given target particles, starting with given acceleration
+  //
   void take_step (const double _dt, const int _trgstart, const int _trgend,
                   const ThreeVec<T>& _tempacc) {
 
@@ -523,6 +534,7 @@ struct Particles {
     s.euler_step(_dt, _trgstart, _trgend);
   }
 
+  //
   // a step where we split a range of targets into subranges of slow and fast particles,
   //   running one step of the slow particles and two steps of the fast particles
   // assumes particles with greatest error are nearer the end of the arrays
@@ -585,15 +597,100 @@ struct Particles {
 
     // before returning, move the slow particles
     s.euler_step(_dt, _trgstart, ifast);
-
   }
 
+  //
   // a step where we split a range of targets into subranges of slow and fast particles,
   //   running one step of the slow particles and two steps of the fast particles
   // will re-sort all particles into slow and fast based on calculation of jerk magnitude
   //
-  //void take_step (const double _dt, const int _trgstart, const int _trgend,
-  //                const ThreeVec<T>& _tempacc, const std::vector<T>& _tempjerk, const int _levels) {
+  void take_step (const double _dt, const int _trgstart, const int _trgend,
+                  const ThreeVec<T>& _tempacc, const std::vector<T>& _tempjerk, const int _levels) {
+
+    // where are we?
+    static int max_levels = _levels;
+    //for (int i=max_levels-_levels; i>0; --i) std::cout << "  ";
+    //std::cout << "  stepping " << _trgstart << " to " << _trgend-1 << " by " << _dt << " at level " << _levels << std::endl;
+    //std::cout << "  stepping " << _trgstart << " to " << _trgend-1 << " by " << _dt << " at level " << _levels << " with temp " << _tempacc.x[9999] << " saved " << s.acc.x[9999] << std::endl;
+
+    // if there are no more levels to go, run the easy one
+    if (_levels == 1) {
+        take_step(_dt, _trgstart, _trgend, _tempacc);
+        return;
+    }
+
+    // how do we split slow and fast particles? magnitude of jerk
+    // solve for accelerations and jerk in this step
+    //nbody_serial_accjerk(_trgstart, _trgend, s.pos.x.data(), s.pos.y.data(), s.pos.z.data(), m.data(), r.data(),
+    //             _trgstart, _trgend, s.acc.x.data(), s.acc.y.data(), s.acc.z.data(), s.jerk.data());
+
+    // using jerk from last saved step, (re-)partition particles into slow and fast
+
+    // find minimum jerk
+    //std::vector<T>::iterator minidx = std::min_element(s.jerk.begin()+_trgstart, s.jerk.begin()+_trgend);
+    auto minidx = std::min_element(s.jerk.begin()+_trgstart, s.jerk.begin()+_trgend);
+    const T minjerk = *minidx;
+    auto maxidx = std::max_element(s.jerk.begin()+_trgstart, s.jerk.begin()+_trgend);
+    const T maxjerk = *maxidx;
+
+    // double that to find the jerk value which separates fast from slow particles
+    const T jerkpivot = 2.0 * minjerk;
+
+    // now how many particles are slow?
+    const int nslow = std::count_if(s.jerk.begin()+_trgstart, s.jerk.begin()+_trgend, [jerkpivot](T tj) { return tj < jerkpivot; });
+
+    for (int i=max_levels-_levels; i>0; --i) std::cout << "  ";
+    std::cout << "  level " << _levels << " with dt " << _dt << " has parts " << _trgstart << " to " << _trgend-1 << " with jerk " << minjerk << " to " << maxjerk << ", pivot at " << jerkpivot << " gives " << nslow << " slow parts" << std::endl;
+
+    // if nslow is all parts, just take the one step
+    if (nslow == _trgend-_trgstart) {
+        take_step(_dt, _trgstart, _trgend, _tempacc);
+        return;
+    }
+
+    // if we get here, we're doing at least a 2-level time stepping
+
+    // find cutoff between slow (low index) and fast (higher index) particles
+    const int ifast = _trgstart + nslow;
+
+    // let's work on this step's slow particles first
+
+    // set accelerations of slow target particles with passed-in values (all slower)
+    s.acc.set_from(_trgstart, ifast, _tempacc, 0, ifast-_trgstart);
+
+    // find accelerations and new jerks on slow particles from all particles
+    nbody_serial_accjerk(_trgstart, _trgend, s.pos.x.data(), s.pos.y.data(), s.pos.z.data(), m.data(), r.data(),
+                 _trgstart, ifast, s.acc.x.data(), s.acc.y.data(), s.acc.z.data(), s.jerk.data());
+
+    // now focus on the fast particles
+
+    // set accelerations of fast target particles with passed-in values (all slower)
+    s.acc.set_from(ifast, _trgend, _tempacc, ifast-_trgstart, _trgend-_trgstart);
+    //std::cout << "           A tempacc " << _tempacc.x[9999] << " saved " << s.acc.x[9999] << " at lev " << _levels << std::endl;
+
+    // find accelerations of fast particles from slow particles (using original positions of slow parts)
+    nbody_serial_accjerk(_trgstart, ifast, s.pos.x.data(), s.pos.y.data(), s.pos.z.data(), m.data(), r.data(),
+                 ifast, _trgend, s.acc.x.data(), s.acc.y.data(), s.acc.z.data(), s.jerk.data());
+    //std::cout << "           B tempacc " << _tempacc.x[9999] << " saved " << s.acc.x[9999] << " at lev " << _levels << std::endl;
+
+    // save the accelerations on all fast particles from all slow particles
+    ThreeVec<T> slowacc(_trgend-ifast);
+    // then from the slow portion of particles within this step
+    slowacc.set_from(0, _trgend-ifast, s.acc, ifast, _trgend);
+    // now slowacc holds the accelerations on all fast particles from all slower particles
+    //std::cout << "           C slowacc " << slowacc.x[9999] << " saved " << s.acc.x[9999] << " at lev " << _levels << std::endl;
+
+    // all fast particles take a half step
+    take_step(0.5*_dt, ifast, _trgend, slowacc, _tempjerk, _levels-1);
+    //std::cout << "           D slowacc " << slowacc.x[9999] << " saved " << s.acc.x[9999] << " at lev " << _levels << std::endl;
+
+    // all fast particles take a half step again
+    take_step(0.5*_dt, ifast, _trgend, slowacc, _tempjerk, _levels-1);
+    //std::cout << "           E slowacc " << slowacc.x[9999] << " saved " << s.acc.x[9999] << " at lev " << _levels << std::endl;
+
+    // before returning, move the slow particles
+    s.euler_step(_dt, _trgstart, ifast);
+  }
 
 };
 
@@ -616,6 +713,7 @@ void copy_particles (const Particles<F>& _from, Particles<T>& _to) {
   copy_threevec(_from.s.pos, _to.s.pos);
   copy_threevec(_from.s.vel, _to.s.vel);
   copy_threevec(_from.s.acc, _to.s.acc);
+  _to.s.jerk = std::vector<T>(_from.s.jerk.begin(), _from.s.jerk.end());
 }
 
 
@@ -644,7 +742,7 @@ void __attribute__ ((noinline)) exchange_sources(const Particles& sendsrcs, cons
 #endif
 
 static inline void usage() {
-    fprintf(stderr, "Usage: adapDt.bin [-n <number>] [-s <steps>] [-dt <num>] [-l <nlevels>] [-end <time>]\n");
+    fprintf(stderr, "Usage: adapDt.bin [-n <number>] [-s <steps>] [-dt <num>] [-l <nlevels>] [-adapt] [-end <time>]\n");
     exit(1);
 }
 
@@ -657,7 +755,8 @@ enum ParticleDistribution {
 
 int main(int argc, char *argv[]) {
 
-    bool presort = true;
+    bool presort = false;
+    bool adaptive = false;
     bool runtrueonly = false;
     int num_levels = 1;
     int n_in = 10000;
@@ -746,6 +845,8 @@ int main(int argc, char *argv[]) {
         } else if (strncmp(argv[i], "-error", 6) == 0) {
             errorfile = std::string(argv[++i]);
 
+        } else if (strncmp(argv[i], "-adapt", 2) == 0) {
+            adaptive = true;
         } else if (strncmp(argv[i], "-true", 2) == 0) {
             runtrueonly = true;
         }
@@ -868,6 +969,24 @@ int main(int argc, char *argv[]) {
     }
 
     //
+    // optionally run one summation to see the jerk array
+    //
+    if (adaptive) {
+        printf("\nCalculating jerk magnitude to prepare for first step\n");
+
+        // just find jerks, not accelerations
+        orig.s.zero_jerk();
+        nbody_serial_jerk(0, orig.n, orig.s.pos.x.data(), orig.s.pos.y.data(), orig.s.pos.z.data(),
+                          orig.m.data(), orig.r.data(),
+                          0, orig.n, orig.s.jerk.data());
+        // what did this look like?
+        //printf("  jerk start %g %g %g and end %g %g %g\n", orig.s.jerk[0], orig.s.jerk[1], orig.s.jerk[2], orig.s.jerk[orig.n-3], orig.s.jerk[orig.n-2], orig.s.jerk[orig.n-1]);
+        // make sure jerk copies over
+        copy_particles(orig, src);
+        //printf("  jerk start %g %g %g and end %g %g %g\n", src.s.jerk[0], src.s.jerk[1], src.s.jerk[2], src.s.jerk[src.n-3], src.s.jerk[src.n-2], src.s.jerk[src.n-1]);
+    }
+
+    //
     // Run the simulation a few time steps
     //
     if (not runtrueonly) {
@@ -912,9 +1031,15 @@ int main(int argc, char *argv[]) {
         // save a running vector of the acceleration from slower particles
         ThreeVec<float> acc_from_slower(src.n);
         acc_from_slower.zero();
+        std::vector<float> jerk_from_slower(src.n);
+        //jerk_from_slower.zero();
 
         // step all particles
-        src.take_step(dt, 0, src.n, acc_from_slower, 0.5, num_levels);
+        if (adaptive) {
+            src.take_step(dt, 0, src.n, acc_from_slower, jerk_from_slower, num_levels);
+        } else {
+            src.take_step(dt, 0, src.n, acc_from_slower, 0.5, num_levels);
+        }
 #endif
 
         auto end = std::chrono::steady_clock::now();
