@@ -39,10 +39,24 @@ Thus, the simulation is not truly solution-adaptive; for that, the jerk would ne
 at each time step and particles would be free to move toward more or less time-refinement to 
 control error.
 
-# To Do
+## To Do
+
 * Keep the MPI version up-to-date
 * Support higher-order forward integrators (Verlet or AB2 come to mind, but they must support [variable time step lengths](https://github.com/markstock/variableDt))
 * Make the slow-fast splits solution-adaptive (according to jerk magnitude)
 * Pull out the classes/structs to new header files
 * Consider passing one std::span (c++20) instead of 3 separate values
+
+## Citing adapDt
+
+I don't get paid for writing or maintaining this, so if you find this tool useful or mention it in your writing, please please cite it by using the following BibTeX entry.
+
+```
+@Misc{adapDt2017,
+  author =       {Mark J.~Stock},
+  title =        {adapDt: Adaptive time stepping for NBody systems},
+  howpublished = {\url{https://github.com/markstock/adapDt}},
+  year =         {2023}
+}
+```
 
