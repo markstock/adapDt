@@ -9,12 +9,14 @@ CC=g++
 CPPOPTS=-O3 -march=native
 CPPOPTS+=-fopenmp
 
+HEADERS=VectorSoA.h State.h ParticleSys.h GravKernels.h
+
 #INCLUDE=-I/opt/Vc/include
 #LIBS=-L/opt/Vc/lib -lVc
 
 all : adapDt.bin
 
-%.bin : %.cpp
+%.bin : %.cpp VectorSoA.h $(HEADERS)
 	$(CC) $(CPPOPTS) $(INCLUDE) -o $@ $< $(LIBS)
 
 clean :

@@ -12,13 +12,13 @@ primarily encountered on a small, but rapidly-moving subset of particles.
 With `g++` installed, you can simply run:
 
 	make
-	./adapDt -n=10000 -s=5
+	./adapDt.bin -n=10000 -s=5
 
 Generate and save a re-usable set of particles, find the "true" solution, and compare to it later:
 
-	./adapDt -n=10000 -s=0 -o=initial.dat
-	./adapDt -n=10000 -s=10 -i=initial.dat -true -o=truesoln.dat
-	./adapDt -n=10000 -s=10 -i=initial.dat -c=truesoln.dat
+	./adapDt.bin -n=10000 -s=0 -o=initial.dat
+	./adapDt.bin -n=10000 -s=10 -i=initial.dat -true -o=truesoln.dat
+	./adapDt.bin -n=10000 -s=10 -i=initial.dat -c=truesoln.dat
 
 ## Results
 
@@ -64,7 +64,6 @@ because otherwise we would need a more complicated multi-step or multi-stage int
 
 ## To Do
 
-* Pull out the classes/structs to new header files
 * Support higher-order forward integrators (Verlet or AB2 come to mind, but they must support [variable time step lengths](https://github.com/markstock/variableDt))
 * Make the slow-fast splits solution-adaptive (according to jerk magnitude)
 * Consider passing one std::span (c++20) instead of 3 separate values

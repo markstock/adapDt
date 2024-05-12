@@ -2,7 +2,7 @@
  * adapDt - testing hierarchical time stepping for gravitation simulations
  *
  * originally ngrav3d.cpp from nvortexVc
- * Copyright (c) 2023 Mark J Stock <markjstock@gmail.com>
+ * Copyright (c) 2023-4 Mark J Stock <markjstock@gmail.com>
 */
 
 #include <iostream>
@@ -22,195 +22,8 @@
 #include <mpi.h>
 #endif
 
-static float num_flops_kernel = 22.f;
-static float num_flops_accjerk = 23.f;
-static float num_flops_jerk = 17.f;
+#include "ParticleSys.h"
 
-//
-// kernels to compute accelerations on particles
-//
-
-// serial (x86) instructions
-template <class T>
-static inline void nbody_kernel(const T sx, const T sy, const T sz,
-                                const T sm, const T sr,
-                                const T tx, const T ty, const T tz, const T tr2,
-                                T* const __restrict__ tax, T* const __restrict__ tay, T* const __restrict__ taz) {
-    // 22 flops
-    const T dx = sx - tx;
-    const T dy = sy - ty;
-    const T dz = sz - tz;
-    const T r2 = dx*dx + dy*dy + dz*dz + sr*sr + tr2;
-    const T invR = 1.0 / sqrt(r2);
-    const T invR2 = invR * invR;
-    const T factor = sm * invR * invR2;
-    *tax += factor * dx;
-    *tay += factor * dy;
-    *taz += factor * dz;
-}
-// specialize for float
-template <>
-inline void nbody_kernel(const float sx, const float sy, const float sz,
-                         const float sm, const float sr,
-                         const float tx, const float ty, const float tz, const float tr2,
-                         float* const __restrict__ tax, float* const __restrict__ tay, float* const __restrict__ taz) {
-    // 22 flops
-    const float dx = sx - tx;
-    const float dy = sy - ty;
-    const float dz = sz - tz;
-    const float r2 = dx*dx + dy*dy + dz*dz + sr*sr + tr2;
-    const float invR = 1.0f / sqrtf(r2);
-    const float invR2 = invR * invR;
-    const float factor = sm * invR * invR2;
-    *tax += factor * dx;
-    *tay += factor * dy;
-    *taz += factor * dz;
-}
-
-template <class T>
-void __attribute__ ((noinline)) nbody_serial(const int ns_start, const int ns_end,
-                                     const T* const __restrict__ x,
-                                     const T* const __restrict__ y,
-                                     const T* const __restrict__ z,
-                                     const T* const __restrict__ m,
-                                     const T* const __restrict__ r,
-                                     const int nt_start, const int nt_end,
-                                     T* const __restrict__ ax,
-                                     T* const __restrict__ ay,
-                                     T* const __restrict__ az) {
-
-    #pragma omp parallel for
-    for (int i = nt_start; i < nt_end; i++) {
-        const T tr2 = r[i]*r[i];
-        for (int j = ns_start; j < ns_end; j++) {
-            nbody_kernel<T>(x[j], y[j], z[j], m[j], r[j],
-                            x[i], y[i], z[i], tr2, &ax[i], &ay[i], &az[i]);
-        }
-    }
-}
-
-//
-// kernels to compute accelerations and jerk magnitude on particles
-//
-
-// serial (x86) instructions
-template <class T>
-static inline void nbody_kernel_accjerk(const T sx, const T sy, const T sz,
-                                const T sm, const T sr,
-                                const T tx, const T ty, const T tz, const T tr2,
-                                T* const __restrict__ tax, T* const __restrict__ tay, T* const __restrict__ taz,
-                                T* const __restrict__ tjm) {
-    // 22 flops
-    const T dx = sx - tx;
-    const T dy = sy - ty;
-    const T dz = sz - tz;
-    const T r2 = dx*dx + dy*dy + dz*dz + sr*sr + tr2;
-    const T invR = 1.0 / sqrt(r2);
-    const T invR2 = invR * invR;
-    const T factor = sm * invR * invR2;
-    *tax += factor * dx;
-    *tay += factor * dy;
-    *taz += factor * dz;
-    *tjm += factor;
-}
-// specialize for float
-template <>
-inline void nbody_kernel_accjerk(const float sx, const float sy, const float sz,
-                         const float sm, const float sr,
-                         const float tx, const float ty, const float tz, const float tr2,
-                         float* const __restrict__ tax, float* const __restrict__ tay, float* const __restrict__ taz,
-                         float* const __restrict__ tjm) {
-    // 22 flops
-    const float dx = sx - tx;
-    const float dy = sy - ty;
-    const float dz = sz - tz;
-    const float r2 = dx*dx + dy*dy + dz*dz + sr*sr + tr2;
-    const float invR = 1.0f / sqrtf(r2);
-    const float invR2 = invR * invR;
-    const float factor = sm * invR * invR2;
-    *tax += factor * dx;
-    *tay += factor * dy;
-    *taz += factor * dz;
-    *tjm += factor;
-}
-
-template <class T>
-void __attribute__ ((noinline)) nbody_serial_accjerk(const int ns_start, const int ns_end,
-                                     const T* const __restrict__ x,
-                                     const T* const __restrict__ y,
-                                     const T* const __restrict__ z,
-                                     const T* const __restrict__ m,
-                                     const T* const __restrict__ r,
-                                     const int nt_start, const int nt_end,
-                                     T* const __restrict__ ax,
-                                     T* const __restrict__ ay,
-                                     T* const __restrict__ az,
-                                     T* const __restrict__ jm) {
-
-    #pragma omp parallel for
-    for (int i = nt_start; i < nt_end; i++) {
-        const T tr2 = r[i]*r[i];
-        for (int j = ns_start; j < ns_end; j++) {
-            nbody_kernel_accjerk<T>(x[j], y[j], z[j], m[j], r[j],
-                            x[i], y[i], z[i], tr2, &ax[i], &ay[i], &az[i], &jm[i]);
-        }
-    }
-}
-
-//
-// kernels to compute jerk magnitude on particles
-//
-
-// serial (x86) instructions
-template <class T>
-static inline void nbody_kernel_jerk(const T sx, const T sy, const T sz,
-                                const T sm, const T sr,
-                                const T tx, const T ty, const T tz, const T tr2,
-                                T* const __restrict__ tjm) {
-    // 17 flops
-    const T dx = sx - tx;
-    const T dy = sy - ty;
-    const T dz = sz - tz;
-    const T r2 = dx*dx + dy*dy + dz*dz + sr*sr + tr2;
-    const T invR = 1.0 / sqrt(r2);
-    const T invR2 = invR * invR;
-    *tjm += sm * invR * invR2;
-}
-// specialize for float
-template <>
-inline void nbody_kernel_jerk(const float sx, const float sy, const float sz,
-                         const float sm, const float sr,
-                         const float tx, const float ty, const float tz, const float tr2,
-                         float* const __restrict__ tjm) {
-    // 17 flops
-    const float dx = sx - tx;
-    const float dy = sy - ty;
-    const float dz = sz - tz;
-    const float r2 = dx*dx + dy*dy + dz*dz + sr*sr + tr2;
-    const float invR = 1.0f / sqrtf(r2);
-    const float invR2 = invR * invR;
-    *tjm += sm * invR * invR2;
-}
-
-template <class T>
-void __attribute__ ((noinline)) nbody_serial_jerk(const int ns_start, const int ns_end,
-                                     const T* const __restrict__ x,
-                                     const T* const __restrict__ y,
-                                     const T* const __restrict__ z,
-                                     const T* const __restrict__ m,
-                                     const T* const __restrict__ r,
-                                     const int nt_start, const int nt_end,
-                                     T* const __restrict__ jm) {
-
-    #pragma omp parallel for
-    for (int i = nt_start; i < nt_end; i++) {
-        const T tr2 = r[i]*r[i];
-        for (int j = ns_start; j < ns_end; j++) {
-            nbody_kernel_jerk<T>(x[j], y[j], z[j], m[j], r[j],
-                            x[i], y[i], z[i], tr2, &jm[i]);
-        }
-    }
-}
 
 // not really alignment, just minimum block sizes
 inline int buffer(const int _n, const int _align) {
@@ -224,522 +37,6 @@ inline int nthisproc(const int ntotal, const int iproc, const int nproc) {
   return (iproc < (ntotal-base_nper*nproc)) ? base_nper+1 : base_nper;
 }
 
-// Class to store a 3-vec for each particle in SoA style
-template <class T>
-struct ThreeVec {
-  std::vector<T> x, y, z;
-
-  // constructor needs a size
-  ThreeVec(const int _n) {
-    x.resize(_n);
-    y.resize(_n);
-    z.resize(_n);
-    zero();
-  }
-
-  // destructor
-  ~ThreeVec() { }
-
-  void init_rand(std::mt19937 _gen, const T _min, const T _max) {
-    std::uniform_real_distribution<> zmean_dist(_min, _max);
-    const int n = x.size();
-    for (int i=0; i<n; ++i) x[i] = zmean_dist(_gen);
-    for (int i=0; i<n; ++i) y[i] = zmean_dist(_gen);
-    for (int i=0; i<n; ++i) z[i] = zmean_dist(_gen);
-  }
-
-  void zero(const int _is, const int _if) {
-    for (int i=_is; i<_if; ++i) x[i] = 0.0;
-    for (int i=_is; i<_if; ++i) y[i] = 0.0;
-    for (int i=_is; i<_if; ++i) z[i] = 0.0;
-  }
-
-  void zero() {
-    zero(0, x.size());
-  }
-
-  void set_from(const int _is, const int _if, const ThreeVec<T>& _val, const int _vs, const int _vf) {
-    //printf("copying from %d - %d (of %ld) into %d - %d (of %ld)\n", _vs, _vf, _val.x.size(), _is, _if, x.size());
-    for (int i=_is; i<_if; ++i) x[i] = _val.x[_vs+i-_is];
-    for (int i=_is; i<_if; ++i) y[i] = _val.y[_vs+i-_is];
-    for (int i=_is; i<_if; ++i) z[i] = _val.z[_vs+i-_is];
-  }
-
-  void add_from(const int _is, const int _if, const ThreeVec<T>& _val) {
-    for (int i=_is; i<_if; ++i) x[i] += _val.x[i];
-    for (int i=_is; i<_if; ++i) y[i] += _val.y[i];
-    for (int i=_is; i<_if; ++i) z[i] += _val.z[i];
-  }
-
-  void add_from(const int _is, const int _if, const std::vector<T>& _x, const std::vector<T>& _y, const std::vector<T>& _z) {
-    for (int i=_is; i<_if; ++i) x[i] += _x[i];
-    for (int i=_is; i<_if; ++i) y[i] += _y[i];
-    for (int i=_is; i<_if; ++i) z[i] += _z[i];
-  }
-
-  void copy_to(const int _is, const int _if, std::vector<T>& _x, std::vector<T>& _y, std::vector<T>& _z) {
-    for (int i=_is; i<_if; ++i) _x[i] = x[i];
-    for (int i=_is; i<_if; ++i) _y[i] = y[i];
-    for (int i=_is; i<_if; ++i) _z[i] = z[i];
-  }
-
-  void reorder(const std::vector<int>& _idx) {
-    assert(_idx.size() == x.size() && "Idx and X vectors do not match in size");
-    std::vector<T> tmp(_idx.size());
-    const int n = x.size();
-    std::copy(x.begin(), x.end(), tmp.begin());
-    for (int i=0; i<n; ++i) x[i] = tmp[_idx[i]];
-    std::copy(y.begin(), y.end(), tmp.begin());
-    for (int i=0; i<n; ++i) y[i] = tmp[_idx[i]];
-    std::copy(z.begin(), z.end(), tmp.begin());
-    for (int i=0; i<n; ++i) z[i] = tmp[_idx[i]];
-  }
-};
-
-// Class to store states
-template <class T>
-struct State {
-  int n;
-  ThreeVec<T> pos, vel, acc;
-  std::vector<T> jerk;
-
-  // constructor needs a size
-  State(const int _n) : n(_n), pos(_n), vel(_n), acc(_n), jerk(_n) {}
-
-  // destructor
-  ~State() { }
-
-  void init_rand(std::mt19937 _gen) {
-    pos.init_rand(_gen, -1.0, 1.0);
-    vel.init_rand(_gen, -1.0, 1.0);
-    acc.zero();
-  }
-
-  void zero(const int _is, const int _if) {
-    acc.zero(_is,_if);
-  }
-
-  void zero() {
-    zero(0, n);
-  }
-
-  void zero_jerk(const int _is, const int _if) {
-    for (int i=_is; i<_if; ++i) jerk[i] = 0.0;
-  }
-
-  void zero_jerk() {
-    zero_jerk(0, n);
-  }
-
-  void reorder(const std::vector<int>& _idx) {
-    pos.reorder(_idx);
-    vel.reorder(_idx);
-    acc.reorder(_idx);
-    std::vector<T> tmp(_idx.size());
-    std::copy(jerk.begin(), jerk.end(), tmp.begin());
-    for (int i=0; i<n; ++i) jerk[i] = tmp[_idx[i]];
-  }
-
-  void euler_step(const double _dt, const int _ifirst, const int _ilast) {
-    // really first order in velocity, midpoint rule for position
-    for (int i=_ifirst; i<_ilast; ++i) pos.x[i] += _dt*(vel.x[i] + 0.5*_dt*acc.x[i]);
-    for (int i=_ifirst; i<_ilast; ++i) pos.y[i] += _dt*(vel.y[i] + 0.5*_dt*acc.y[i]);
-    for (int i=_ifirst; i<_ilast; ++i) pos.z[i] += _dt*(vel.z[i] + 0.5*_dt*acc.z[i]);
-    for (int i=_ifirst; i<_ilast; ++i) vel.x[i] += _dt*acc.x[i];
-    for (int i=_ifirst; i<_ilast; ++i) vel.y[i] += _dt*acc.y[i];
-    for (int i=_ifirst; i<_ilast; ++i) vel.z[i] += _dt*acc.z[i];
-  }
-};
-
-// Class to store particles in flat arrays
-template <class T>
-struct Particles {
-
-  int n = 0;
-  std::vector<int> idx;
-  std::vector<T> r, m;
-  // one State stores position, velocity, acceleration for n particles
-  State<T> s;
-
-  // sized constructor is the only constructor
-  Particles(const int _n) : n(_n), s(_n) {
-    idx.resize(_n);
-    r.resize(_n);
-    m.resize(_n);
-    std::iota(idx.begin(), idx.end(), 0);
-  }
-
-  // destructor
-  ~Particles() {}
-
-  // copy constructor (must have same template parameter)
-  Particles(const Particles& _src) : Particles(_src.n) {
-    deep_copy(_src);
-  }
-
-  void init_rand(std::mt19937 _gen) {
-    std::uniform_real_distribution<> zmean_mass(0.0, 1.0);
-    for (int i=0; i<n; ++i) m[i] = zmean_mass(_gen);
-    const T rad = 1.0 / std::sqrt((T)n);
-    for (int i=0; i<n; ++i) r[i] = rad;
-    s.init_rand(_gen);
-  }
-
-  void init_disk(std::mt19937 _gen) {
-    // multiple rings extending to r=1 from origin, in xy plane (z small)
-    // how many rings?
-    const int nrings = (int)sqrt((T)n);
-    // how much mass and area per ring?
-    std::vector<T> mpr(nrings);
-    T msum = 0.0;
-    T asum = 0.0;
-    for (int i=0; i<nrings; ++i) {
-      mpr[i] = 1.0 / (i+0.5);
-      msum += mpr[i];
-      asum += (i+0.5);
-    }
-    for (int i=0; i<nrings; ++i) mpr[i] /= msum;
-    //std::cout << "n is " << n << " and asum is " << asum << "\n";
-    // loop over rings, adding particles as you go
-    int nremain = n;
-    int pc = 0;
-    const T twopi = 2.0 * 3.14159265358979;
-    std::uniform_real_distribution<> thetashift(0.0, 1.0);
-    for (int i=0; i<nrings; ++i) {
-      int nparts = std::max(2, std::min(nremain, (int)(0.5 + n*(i+0.5)/asum)));
-      if (i==nrings-1) nparts = nremain;
-      const T rad = 1.0 * (i+0.5) / nrings;
-      std::cout << "ring " << i << " at rad " << rad << " has mass " << mpr[i] << " and " << nparts << " particles\n";
-      nremain -= nparts;
-      const T tshift = thetashift(_gen);
-      for (int j=0; j<nparts; ++j) {
-        m[pc] = mpr[i] / nparts;
-        r[pc] = 0.25 / nrings;
-        const T theta = twopi*(j+tshift)/nparts;
-        s.pos.x[pc] = rad * std::cos(theta);
-        s.pos.y[pc] = rad * std::sin(theta);
-        s.pos.z[pc] = 0.0;
-        ++pc;
-      }
-    }
-
-    // and all vels and accs are zero
-    s.vel.zero();
-    s.acc.zero();
-
-    // now compute accelerations on all particles
-    nbody_serial<T>(0, n, s.pos.x.data(), s.pos.y.data(), s.pos.z.data(), m.data(), r.data(),
-                    0, n, s.acc.x.data(), s.acc.y.data(), s.acc.z.data());
-
-    // set velocities to counteract inward acceleration (v^2 / r)
-    std::uniform_real_distribution<> zbobble(-0.01, 0.01);
-    for (int i=0; i<n; ++i) {
-      const T rad = std::sqrt(std::pow(s.pos.x[i],2) + std::pow(s.pos.y[i],2) + std::pow(s.pos.z[i],2));
-      const T accmag = std::sqrt(std::pow(s.acc.x[i],2) + std::pow(s.acc.y[i],2) + std::pow(s.acc.z[i],2));
-      const T velmag = std::sqrt(accmag*rad);
-      //std::cout << "part " << i << " at r=" << rad << " has accel " << accmag << " so vel is " << velmag << "\n";
-      // bobble the z coordinate a little
-      s.pos.z[i] = zbobble(_gen);
-      // set the planar velocities now
-      s.vel.x[i] = velmag * (-s.pos.y[i]/rad);
-      s.vel.y[i] = velmag * (s.pos.x[i]/rad);
-    }
-  }
-
-  void deep_copy(const Particles& _from) {
-    assert(n == _from.n && "Copying from Particles with different n");
-    for (int i=0; i<n; ++i) idx[i] = _from.idx[i];
-    for (int i=0; i<n; ++i) r[i] = _from.r[i];
-    for (int i=0; i<n; ++i) s[i] = _from.s[i];
-  }
-
-  void shallow_copy(const Particles& _from) {
-    // warning: this can orphan memory!!!
-    // need to implement this for vectors
-    //n = _s.n;
-    //x = _s.x;
-    //y = _s.y;
-    //z = _s.z;
-    //r = _s.r;
-    //s = _s.s;
-  }
-
-  void reorder(const std::vector<int>& _idx) {
-    // temporary reusable float vector
-    std::vector<T> tmp(n);
-    // copy the original input float vector into that temporary vector
-    std::copy(r.begin(), r.end(), tmp.begin());
-    // scatter values from the temp vector back into the original vector
-    for (int i=0; i<n; ++i) r[i] = tmp[_idx[i]];
-
-    // do it for everything else
-    std::copy(idx.begin(), idx.end(), tmp.begin());
-    for (int i=0; i<n; ++i) idx[i] = tmp[_idx[i]];
-    std::copy(m.begin(), m.end(), tmp.begin());
-    for (int i=0; i<n; ++i) m[i] = tmp[_idx[i]];
-    s.reorder(_idx);
-  }
-
-  void tofile(const std::string _ofn) {
-    assert(not _ofn.empty() && "Outfile name is bad or empty");
-    std::cout << "\nWriting data to (" << _ofn << ")..." << std::flush;
-    std::ofstream OUTFILE(_ofn);
-    for (int i=0; i<n; ++i) {
-      OUTFILE << idx[i] << " " << std::setprecision(17) << s.pos.x[i] << " " << s.pos.y[i] << " " << s.pos.z[i] << " " << r[i] << " " << m[i] << " " << s.vel.x[i] << " " << s.vel.y[i] << " " << s.vel.z[i] << "\n";
-    }
-    OUTFILE.close();
-    std::cout << "done" << std::endl;
-  }
-
-  void fromfile(const std::string _ifn) {
-    assert(not _ifn.empty() && "Input name is bad or empty");
-    std::cout << "\nReading data from (" << _ifn << ")..." << std::flush;
-    std::ifstream INFILE(_ifn);
-    for (int i=0; i<n; ++i) {
-      INFILE >> idx[i] >> s.pos.x[i] >> s.pos.y[i] >> s.pos.z[i] >> r[i] >> m[i] >> s.vel.x[i] >> s.vel.y[i] >> s.vel.z[i];
-    }
-    INFILE.close();
-    std::cout << "done" << std::endl;
-  }
-
-  //
-  // simple step: all source particles affect given target particles
-  //
-  void take_step (const double _dt, const int _trgstart, const int _trgend) {
-    // zero the accelerations
-    s.zero(_trgstart, _trgend);
-
-    // run the O(N^2) force summation - all sources on the given targets
-    nbody_serial(0, n, s.pos.x.data(), s.pos.y.data(), s.pos.z.data(), m.data(), r.data(),
-                 _trgstart, _trgend, s.acc.x.data(), s.acc.y.data(), s.acc.z.data());
-
-    // advect the particles
-    s.euler_step(_dt, _trgstart, _trgend);
-  }
-
-  //
-  // final step: given source particles affect given target particles, starting with given acceleration
-  //
-  void take_step (const double _dt, const int _trgstart, const int _trgend,
-                  const ThreeVec<T>& _tempacc) {
-
-    // set the accelerations from input (assume it's from all particles 0.._trgstart
-    s.acc.set_from(_trgstart, _trgend, _tempacc, 0, _trgend-_trgstart);
-
-    // run the O(N^2) force summation - all sources on the given targets
-    nbody_serial(_trgstart, _trgend, s.pos.x.data(), s.pos.y.data(), s.pos.z.data(), m.data(), r.data(),
-                 _trgstart, _trgend, s.acc.x.data(), s.acc.y.data(), s.acc.z.data());
-
-    // advect the particles
-    s.euler_step(_dt, _trgstart, _trgend);
-  }
-
-  //
-  // a step where we split a range of targets into subranges of slow and fast particles,
-  //   running one step of the slow particles and two steps of the fast particles
-  // assumes particles with greatest error are nearer the end of the arrays
-  //
-  void take_step (const double _dt, const int _trgstart, const int _trgend,
-                  const ThreeVec<T>& _tempacc, const float _slowfrac, const int _levels) {
-
-    // where are we?
-    static int max_levels = _levels;
-    //for (int i=max_levels-_levels; i>0; --i) std::cout << "  ";
-    //std::cout << "  stepping " << _trgstart << " to " << _trgend-1 << " by " << _dt << " at level " << _levels << std::endl;
-    //std::cout << "  stepping " << _trgstart << " to " << _trgend-1 << " by " << _dt << " at level " << _levels << " with temp " << _tempacc.x[9999] << " saved " << s.acc.x[9999] << std::endl;
-
-    // if there are no more levels to go, run the easy one
-    if (_levels == 1) {
-        take_step(_dt, _trgstart, _trgend, _tempacc);
-        return;
-    }
-
-    // we're doing at least a 2-level time stepping
-    assert(_slowfrac > 0.0 and _slowfrac < 1.0 and "_slowfrac is not 0..1");
-
-    // find cutoff between slow (low index) and fast (higher index) particles
-    const int ifast = _trgstart + (_trgend-_trgstart)*_slowfrac;
-
-    // let's work on this step's slow particles first
-
-    // set accelerations of slow target particles with passed-in values (all slower)
-    s.acc.set_from(_trgstart, ifast, _tempacc, 0, ifast-_trgstart);
-
-    // find accelerations of slow particles from all particles
-    nbody_serial(_trgstart, _trgend, s.pos.x.data(), s.pos.y.data(), s.pos.z.data(), m.data(), r.data(),
-                 _trgstart, ifast, s.acc.x.data(), s.acc.y.data(), s.acc.z.data());
-
-    // now focus on the fast particles
-
-    // set accelerations of fast target particles with passed-in values (all slower)
-    s.acc.set_from(ifast, _trgend, _tempacc, ifast-_trgstart, _trgend-_trgstart);
-    //std::cout << "           A tempacc " << _tempacc.x[9999] << " saved " << s.acc.x[9999] << " at lev " << _levels << std::endl;
-
-    // find accelerations of fast particles from slow particles (using original positions of slow parts)
-    nbody_serial(_trgstart, ifast, s.pos.x.data(), s.pos.y.data(), s.pos.z.data(), m.data(), r.data(),
-                 ifast, _trgend, s.acc.x.data(), s.acc.y.data(), s.acc.z.data());
-    //std::cout << "           B tempacc " << _tempacc.x[9999] << " saved " << s.acc.x[9999] << " at lev " << _levels << std::endl;
-
-    // save the accelerations on all fast particles from all slow particles
-    ThreeVec<T> slowacc(_trgend-ifast);
-    // then from the slow portion of particles within this step
-    slowacc.set_from(0, _trgend-ifast, s.acc, ifast, _trgend);
-    // now slowacc holds the accelerations on all fast particles from all slower particles
-    //std::cout << "           C slowacc " << slowacc.x[9999] << " saved " << s.acc.x[9999] << " at lev " << _levels << std::endl;
-
-    // all fast particles take a half step
-    take_step(0.5*_dt, ifast, _trgend, slowacc, _slowfrac, _levels-1);
-    //std::cout << "           D slowacc " << slowacc.x[9999] << " saved " << s.acc.x[9999] << " at lev " << _levels << std::endl;
-
-    // all fast particles take a half step again
-    take_step(0.5*_dt, ifast, _trgend, slowacc, _slowfrac, _levels-1);
-    //std::cout << "           E slowacc " << slowacc.x[9999] << " saved " << s.acc.x[9999] << " at lev " << _levels << std::endl;
-
-    // before returning, move the slow particles
-    s.euler_step(_dt, _trgstart, ifast);
-  }
-
-  //
-  // a step where we split a range of targets into subranges of slow and fast particles,
-  //   running one step of the slow particles and two steps of the fast particles
-  // will re-sort all particles into slow and fast based on calculation of jerk magnitude
-  //
-  void take_step (const double _dt, const int _trgstart, const int _trgend,
-                  const ThreeVec<T>& _tempacc, const std::vector<T>& _tempjerk, const int _levels) {
-
-    // where are we?
-    static int max_levels = _levels;
-    //for (int i=max_levels-_levels; i>0; --i) std::cout << "  ";
-    //std::cout << "  stepping " << _trgstart << " to " << _trgend-1 << " by " << _dt << " at level " << _levels << std::endl;
-    //std::cout << "  stepping " << _trgstart << " to " << _trgend-1 << " by " << _dt << " at level " << _levels << " with temp " << _tempacc.x[9999] << " saved " << s.acc.x[9999] << std::endl;
-
-    // if there are no more levels to go, run the easy one
-    if (_levels == 1) {
-        take_step(_dt, _trgstart, _trgend, _tempacc);
-        return;
-    }
-
-    // how do we split slow and fast particles? magnitude of jerk
-    // solve for accelerations and jerk in this step
-    //nbody_serial_accjerk(_trgstart, _trgend, s.pos.x.data(), s.pos.y.data(), s.pos.z.data(), m.data(), r.data(),
-    //             _trgstart, _trgend, s.acc.x.data(), s.acc.y.data(), s.acc.z.data(), s.jerk.data());
-
-    // using jerk from last saved step, (re-)partition particles into slow and fast
-
-    // find minimum jerk
-    //std::vector<T>::iterator minidx = std::min_element(s.jerk.begin()+_trgstart, s.jerk.begin()+_trgend);
-    auto minidx = std::min_element(s.jerk.begin()+_trgstart, s.jerk.begin()+_trgend);
-    const T minjerk = *minidx;
-    auto maxidx = std::max_element(s.jerk.begin()+_trgstart, s.jerk.begin()+_trgend);
-    const T maxjerk = *maxidx;
-
-    // double that to find the jerk value which separates fast from slow particles
-    const T jerkpivot = 2.0 * minjerk;
-
-    // now how many particles are slow?
-    const int nslow = std::count_if(s.jerk.begin()+_trgstart, s.jerk.begin()+_trgend, [jerkpivot](T tj) { return tj < jerkpivot; });
-
-    for (int i=max_levels-_levels; i>0; --i) std::cout << "  ";
-    std::cout << "  level " << _levels << " with dt " << _dt << " has parts " << _trgstart << " to " << _trgend-1 << " with jerk " << minjerk << " to " << maxjerk << ", pivot at " << jerkpivot << " gives " << nslow << " slow parts" << std::endl;
-
-    // if nslow is all parts, just take the one step
-    if (nslow == _trgend-_trgstart) {
-        take_step(_dt, _trgstart, _trgend, _tempacc);
-        return;
-    }
-
-    // if we get here, we're doing at least a 2-level time stepping
-
-    // find cutoff between slow (low index) and fast (higher index) particles
-    const int ifast = _trgstart + nslow;
-
-    // let's work on this step's slow particles first
-
-    // set accelerations of slow target particles with passed-in values (all slower)
-    s.acc.set_from(_trgstart, ifast, _tempacc, 0, ifast-_trgstart);
-
-    // find accelerations and new jerks on slow particles from all particles
-    nbody_serial_accjerk(_trgstart, _trgend, s.pos.x.data(), s.pos.y.data(), s.pos.z.data(), m.data(), r.data(),
-                 _trgstart, ifast, s.acc.x.data(), s.acc.y.data(), s.acc.z.data(), s.jerk.data());
-
-    // now focus on the fast particles
-
-    // set accelerations of fast target particles with passed-in values (all slower)
-    s.acc.set_from(ifast, _trgend, _tempacc, ifast-_trgstart, _trgend-_trgstart);
-    //std::cout << "           A tempacc " << _tempacc.x[9999] << " saved " << s.acc.x[9999] << " at lev " << _levels << std::endl;
-
-    // find accelerations of fast particles from slow particles (using original positions of slow parts)
-    nbody_serial_accjerk(_trgstart, ifast, s.pos.x.data(), s.pos.y.data(), s.pos.z.data(), m.data(), r.data(),
-                 ifast, _trgend, s.acc.x.data(), s.acc.y.data(), s.acc.z.data(), s.jerk.data());
-    //std::cout << "           B tempacc " << _tempacc.x[9999] << " saved " << s.acc.x[9999] << " at lev " << _levels << std::endl;
-
-    // save the accelerations on all fast particles from all slow particles
-    ThreeVec<T> slowacc(_trgend-ifast);
-    // then from the slow portion of particles within this step
-    slowacc.set_from(0, _trgend-ifast, s.acc, ifast, _trgend);
-    // now slowacc holds the accelerations on all fast particles from all slower particles
-    //std::cout << "           C slowacc " << slowacc.x[9999] << " saved " << s.acc.x[9999] << " at lev " << _levels << std::endl;
-
-    // all fast particles take a half step
-    take_step(0.5*_dt, ifast, _trgend, slowacc, _tempjerk, _levels-1);
-    //std::cout << "           D slowacc " << slowacc.x[9999] << " saved " << s.acc.x[9999] << " at lev " << _levels << std::endl;
-
-    // all fast particles take a half step again
-    take_step(0.5*_dt, ifast, _trgend, slowacc, _tempjerk, _levels-1);
-    //std::cout << "           E slowacc " << slowacc.x[9999] << " saved " << s.acc.x[9999] << " at lev " << _levels << std::endl;
-
-    // before returning, move the slow particles
-    s.euler_step(_dt, _trgstart, ifast);
-  }
-
-};
-
-//
-// Copy one Particles to another with different template param
-//
-template<class F, class T>
-void copy_threevec (const ThreeVec<F>& _from, ThreeVec<T>& _to) {
-  assert(_from.x.size() == _to.x.size() && "Copying from ThreeVec with different n");
-  _to.x = std::vector<T>(_from.x.begin(), _from.x.end());
-  _to.y = std::vector<T>(_from.y.begin(), _from.y.end());
-  _to.z = std::vector<T>(_from.z.begin(), _from.z.end());
-}
-template<class F, class T>
-void copy_particles (const Particles<F>& _from, Particles<T>& _to) {
-  assert(_from.n == _to.n && "Copying from Particles with different n");
-  _to.idx = std::vector<int>(_from.idx.begin(), _from.idx.end());
-  _to.r = std::vector<T>(_from.r.begin(), _from.r.end());
-  _to.m = std::vector<T>(_from.m.begin(), _from.m.end());
-  copy_threevec(_from.s.pos, _to.s.pos);
-  copy_threevec(_from.s.vel, _to.s.vel);
-  copy_threevec(_from.s.acc, _to.s.acc);
-  _to.s.jerk = std::vector<T>(_from.s.jerk.begin(), _from.s.jerk.end());
-}
-
-
-#ifdef USE_MPI
-// non-class method to swap sources
-void __attribute__ ((noinline)) exchange_sources(const Particles& sendsrcs, const int ito,
-                                                 Particles& recvsrcs, const int ifrom,
-                                                 MPI_Request* handle) {
-
-  // how many to send and receive?
-  MPI_Sendrecv(&sendsrcs.n, 1, MPI_INT, ito, 9, &recvsrcs.n, 1, MPI_INT, ifrom, MPI_ANY_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-  //std::cout << "  proc " << iproc << " sending " << sendsrcs.n << " and receiving " << recvsrcs.n << std::endl;
-
-  // do the transfers, saving the handle for future reference
-  MPI_Irecv(recvsrcs.x, recvsrcs.n, MPI_FLOAT, ifrom, 10, MPI_COMM_WORLD, &handle[0]);
-  MPI_Isend(sendsrcs.x, sendsrcs.n, MPI_FLOAT, ito, 10, MPI_COMM_WORLD, &handle[1]);
-  MPI_Irecv(recvsrcs.y, recvsrcs.n, MPI_FLOAT, ifrom, 11, MPI_COMM_WORLD, &handle[2]);
-  MPI_Isend(sendsrcs.y, sendsrcs.n, MPI_FLOAT, ito, 11, MPI_COMM_WORLD, &handle[3]);
-  MPI_Irecv(recvsrcs.z, recvsrcs.n, MPI_FLOAT, ifrom, 12, MPI_COMM_WORLD, &handle[4]);
-  MPI_Isend(sendsrcs.z, sendsrcs.n, MPI_FLOAT, ito, 12, MPI_COMM_WORLD, &handle[5]);
-  MPI_Irecv(recvsrcs.r, recvsrcs.n, MPI_FLOAT, ifrom, 13, MPI_COMM_WORLD, &handle[6]);
-  MPI_Isend(sendsrcs.r, sendsrcs.n, MPI_FLOAT, ito, 13, MPI_COMM_WORLD, &handle[7]);
-  MPI_Irecv(recvsrcs.s, recvsrcs.n, MPI_FLOAT, ifrom, 14, MPI_COMM_WORLD, &handle[8]);
-  MPI_Isend(sendsrcs.s, sendsrcs.n, MPI_FLOAT, ito, 14, MPI_COMM_WORLD, &handle[9]);
-}
-#endif
 
 static inline void usage() {
     fprintf(stderr, "Usage: adapDt.bin [-n <number>] [-s <steps>] [-dt <num>] [-l <nlevels>] [-adapt] [-end <time>]\n");
@@ -937,8 +234,7 @@ int main(int argc, char *argv[]) {
 
         // find all accelerations
         orig.s.zero();
-        nbody_serial_accjerk(0, orig.n, orig.s.pos.x.data(), orig.s.pos.y.data(), orig.s.pos.z.data(), orig.m.data(), orig.r.data(),
-                     0, orig.n, orig.s.acc.x.data(), orig.s.acc.y.data(), orig.s.acc.z.data(), orig.s.jerk.data());
+        nbody_serial_accjerk(0, orig.n, orig.s.pos, orig.m, orig.r, 0, orig.n, orig.s.acc, orig.s.jerk);
 
         // convert to a scalar value
         std::vector<double> val(orig.n);
@@ -987,9 +283,7 @@ int main(int argc, char *argv[]) {
 
         // just find jerks, not accelerations
         orig.s.zero_jerk();
-        nbody_serial_jerk(0, orig.n, orig.s.pos.x.data(), orig.s.pos.y.data(), orig.s.pos.z.data(),
-                          orig.m.data(), orig.r.data(),
-                          0, orig.n, orig.s.jerk.data());
+        nbody_serial_jerk(0, orig.n, orig.s.pos, orig.m, orig.r, 0, orig.n, orig.s.jerk);
         // what did this look like?
         //printf("  jerk start %g %g %g and end %g %g %g\n", orig.s.jerk[0], orig.s.jerk[1], orig.s.jerk[2], orig.s.jerk[orig.n-3], orig.s.jerk[orig.n-2], orig.s.jerk[orig.n-1]);
         // make sure jerk copies over
@@ -1040,7 +334,7 @@ int main(int argc, char *argv[]) {
         MPI_Barrier(MPI_COMM_WORLD);
 #else
         // save a running vector of the acceleration from slower particles
-        ThreeVec<float> acc_from_slower(src.n);
+        VectorSoA<float,int,3> acc_from_slower(src.n);
         acc_from_slower.zero();
         std::vector<float> jerk_from_slower(src.n);
         //jerk_from_slower.zero();
@@ -1082,7 +376,7 @@ int main(int argc, char *argv[]) {
         printf("\nat end (t=%g), some positions\n", nsteps*dt);
 
         // write positions
-        for (int i=src.n/10; i<src.n; i+=src.n/5) printf("   particle %d  fp32 %10.6f %10.6f %10.6f  fp64 %10.6f %10.6f %10.6f\n",i,src.s.pos.x[i],src.s.pos.y[i],src.s.pos.z[i],orig.s.pos.x[i],orig.s.pos.y[i],orig.s.pos.z[i]);
+        for (int i=src.n/10; i<src.n; i+=src.n/5) printf("   particle %d  fp32 %10.6f %10.6f %10.6f  fp64 %10.6f %10.6f %10.6f\n",i,src.s.pos.x[0][i],src.s.pos.x[1][i],src.s.pos.x[2][i],orig.s.pos.x[0][i],orig.s.pos.x[1][i],orig.s.pos.x[2][i]);
         // write accelerations
         //for (int i=0; i<2; i++) printf("   particle %d  fp32 %10.4f %10.4f %10.4f  fp64 %10.4f %10.4f %10.4f\n",i,src.s.acc.x[i],src.s.acc.y[i],src.s.acc.z[i],orig.s.acc.x[i],orig.s.acc.y[i],orig.s.acc.z[i]);
         printf("\n");
@@ -1110,16 +404,16 @@ int main(int argc, char *argv[]) {
         // write file for error analysis (velocity)
         if (not errorfile.empty()) {
             for (int i=0; i<orig.n; ++i) {
-                denom += std::pow(orig.s.vel.x[i],2) + std::pow(orig.s.vel.y[i],2) + std::pow(orig.s.vel.z[i],2);
+                denom += std::pow(orig.s.vel.x[0][i],2) + std::pow(orig.s.vel.x[1][i],2) + std::pow(orig.s.vel.x[2][i],2);
             }
             std::cout << "\nWriting error to (" << errorfile << ")..." << std::flush;
             std::ofstream OUTFILE(errorfile);
             for (int i=0; i<orig.n; ++i) {
-                const double posmag = std::sqrt(std::pow(src.s.pos.x[i],2) + std::pow(src.s.pos.y[i],2) + std::pow(src.s.pos.z[i],2));
-                const double velmag = std::sqrt(std::pow(src.s.vel.x[i],2) + std::pow(src.s.vel.y[i],2) + std::pow(src.s.vel.z[i],2));
-                const double accmag = std::sqrt(std::pow(src.s.acc.x[i],2) + std::pow(src.s.acc.y[i],2) + std::pow(src.s.acc.z[i],2));
+                const double posmag = std::sqrt(std::pow(src.s.pos.x[0][i],2) + std::pow(src.s.pos.x[1][i],2) + std::pow(src.s.pos.x[2][i],2));
+                const double velmag = std::sqrt(std::pow(src.s.vel.x[0][i],2) + std::pow(src.s.vel.x[1][i],2) + std::pow(src.s.vel.x[2][i],2));
+                const double accmag = std::sqrt(std::pow(src.s.acc.x[0][i],2) + std::pow(src.s.acc.x[1][i],2) + std::pow(src.s.acc.x[2][i],2));
                 const int oid = src.idx[i];
-                double velerr = std::pow(orig.s.vel.x[oid]-src.s.vel.x[i],2) + std::pow(orig.s.vel.y[oid]-src.s.vel.y[i],2) + std::pow(orig.s.vel.z[oid]-src.s.vel.z[i],2);
+                double velerr = std::pow(orig.s.vel.x[0][oid]-src.s.vel.x[0][i],2) + std::pow(orig.s.vel.x[1][oid]-src.s.vel.x[1][i],2) + std::pow(orig.s.vel.x[2][oid]-src.s.vel.x[2][i],2);
                 velerr = std::sqrt(orig.n*velerr/denom);
                 OUTFILE << i << " " << std::setprecision(8) << posmag << " " << velmag << " " << accmag << " " << src.r[i] << " " << src.m[i] << " " << velerr << "\n";
             }
@@ -1134,10 +428,10 @@ int main(int argc, char *argv[]) {
         maxerr = 0.0;
         for (int i=0; i<orig.n; ++i) {
             const int oid = src.idx[i];
-            const double thiserr = std::pow(orig.s.pos.x[oid]-src.s.pos.x[i],2) + std::pow(orig.s.pos.y[oid]-src.s.pos.y[i],2) + std::pow(orig.s.pos.z[oid]-src.s.pos.z[i],2);
+            const double thiserr = std::pow(orig.s.pos.x[0][oid]-src.s.pos.x[0][i],2) + std::pow(orig.s.pos.x[1][oid]-src.s.pos.x[1][i],2) + std::pow(orig.s.pos.x[2][oid]-src.s.pos.x[2][i],2);
             if (thiserr > maxerr) maxerr = thiserr;
             numer += thiserr;
-            denom += std::pow(orig.s.pos.x[i],2) + std::pow(orig.s.pos.y[i],2) + std::pow(orig.s.pos.z[i],2);
+            denom += std::pow(orig.s.pos.x[0][i],2) + std::pow(orig.s.pos.x[1][i],2) + std::pow(orig.s.pos.x[2][i],2);
         }
         if (iproc==0) printf("\t\t(%.3e / %.3e mean/max RMS error vs. dble, position)\n", std::sqrt(numer/denom), std::sqrt(orig.n*maxerr/denom));
 
@@ -1146,10 +440,10 @@ int main(int argc, char *argv[]) {
         maxerr = 0.0;
         for (int i=0; i<orig.n; ++i) {
             const int oid = src.idx[i];
-            const double thiserr = std::pow(orig.s.vel.x[oid]-src.s.vel.x[i],2) + std::pow(orig.s.vel.y[oid]-src.s.vel.y[i],2) + std::pow(orig.s.vel.z[oid]-src.s.vel.z[i],2);
+            const double thiserr = std::pow(orig.s.vel.x[0][oid]-src.s.vel.x[0][i],2) + std::pow(orig.s.vel.x[1][oid]-src.s.vel.x[1][i],2) + std::pow(orig.s.vel.x[2][oid]-src.s.vel.x[2][i],2);
             if (thiserr > maxerr) maxerr = thiserr;
             numer += thiserr;
-            denom += std::pow(orig.s.vel.x[i],2) + std::pow(orig.s.vel.y[i],2) + std::pow(orig.s.vel.z[i],2);
+            denom += std::pow(orig.s.vel.x[0][i],2) + std::pow(orig.s.vel.x[1][i],2) + std::pow(orig.s.vel.x[2][i],2);
         }
         if (iproc==0) printf("\t\t(%.3e / %.3e mean/max RMS error vs. dble, velocity)\n", std::sqrt(numer/denom), std::sqrt(orig.n*maxerr/denom));
 
