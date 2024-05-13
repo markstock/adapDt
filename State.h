@@ -34,6 +34,10 @@ struct AccelerationState {
   // constructor needs a size
   AccelerationState(const IT _n) : pos(_n), vel(_n), acc(_n), jerk(_n) {}
 
+  // alternatively, construct from an existing object
+  AccelerationState(const AccelerationState& _from) :
+    pos(_from.pos), vel(_from.vel), acc(_from.acc), jerk(_from.jerk) {}
+
   // destructor
   ~AccelerationState() { }
 
@@ -92,6 +96,16 @@ struct AccelerationState {
     //  }
     //}
   }
+
+  // computes new position and vel from pos, vel, acc, dt, using both accelerations
+  void rk2_step(const double _dt, const IT _ifirst, const IT _ilast, const AccelerationState& _alt) {
+    // second order in velocity and position
+    for (uint8_t d=0; d<D; ++d) {
+      for (IT i=_ifirst; i<_ilast; ++i) pos.x[d][i] += 0.5*_dt*vel.x[d][i];
+      for (IT i=_ifirst; i<_ilast; ++i) vel.x[d][i] += 0.5*_dt*(acc.x[d][i]+_alt.acc.x[d][i]);
+      for (IT i=_ifirst; i<_ilast; ++i) pos.x[d][i] += 0.5*_dt*vel.x[d][i];
+    }
+  }
 };
 
 
@@ -116,6 +130,10 @@ struct VelocityState {
 
   // constructor needs a size
   VelocityState(const IT _n) : pos(_n), vel(_n), jerk(_n) {}
+
+  // alternatively, construct from an existing object
+  VelocityState(const VelocityState& _from) :
+    pos(_from.pos), vel(_from.vel), jerk(_from.jerk) {}
 
   // destructor
   ~VelocityState() { }
@@ -154,6 +172,14 @@ struct VelocityState {
     // first order in velocity
     for (uint8_t d=0; d<D; ++d) {
       for (IT i=_ifirst; i<_ilast; ++i) pos.x[d][i] += _dt*vel.x[d][i];
+    }
+  }
+
+  // computes new position from pos, vel, dt, using both velocities
+  void rk2_step(const double _dt, const IT _ifirst, const IT _ilast, const VelocityState& _alt) {
+    // second order in velocity and position
+    for (uint8_t d=0; d<D; ++d) {
+      for (IT i=_ifirst; i<_ilast; ++i) pos.x[d][i] += 0.5*_dt*(vel.x[d][i]+_alt.vel.x[d][i]);
     }
   }
 };

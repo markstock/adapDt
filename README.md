@@ -65,7 +65,9 @@ because otherwise we would need a more complicated multi-step or multi-stage int
 ## To Do
 
 * Support higher-order forward integrators (Verlet or AB2 come to mind, but they must support [variable time step lengths](https://github.com/markstock/variableDt))
+* At the very least, support a higher-order integrator when calculating the "true" solution - at least RK4 using uniform step sizes
 * Make the slow-fast splits solution-adaptive (according to jerk magnitude)
+* Be smarter about calculating error - move it into one of the structs
 * Consider passing one std::span (c++20) instead of 3 separate values
 * Keep the MPI version up-to-date
 

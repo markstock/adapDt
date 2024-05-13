@@ -189,6 +189,30 @@ struct Particles {
     // advect the particles
     s.euler_step(_dt, _trgstart, _trgend);
   }
+  void take_step (const double _dt) {
+    take_step(_dt, 0, n);
+  }
+
+  // simple step: RK2 on all
+  void take_step_rk2 (const double _dt) {
+
+    // compute accelerations given original positions
+    s.zero(0, n);
+    nbody_serial(0, n, s.pos, m, r, 0, n, s.acc);
+
+    // make a temporary copy
+    AccelerationState temp(s);
+
+    // advect the temp particles to new positions
+    temp.euler_step(_dt, 0, n);
+
+    // compute accelerations at these new positions
+    temp.zero(0, n);
+    nbody_serial(0, n, temp.pos, m, r, 0, n, temp.acc);
+
+    // and take the RK2 step from original positions and vels, using average of both accelerations
+    s.rk2_step(_dt, 0, n, temp);
+  }
 
   //
   // final step: given source particles affect given target particles, starting with given acceleration

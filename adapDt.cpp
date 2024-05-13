@@ -157,6 +157,10 @@ int main(int argc, char *argv[]) {
             presort = false;
         } else if (strncmp(argv[i], "-true", 2) == 0) {
             runtrueonly = true;
+        } else if (strncmp(argv[i], "-h", 2) == 0) {
+            usage();
+        } else {
+            usage();
         }
     }
 
@@ -364,7 +368,8 @@ int main(int argc, char *argv[]) {
         int truensteps = 0.5 + endtime / truedt;
         for (int istep = 0; istep < truensteps; ++istep) {
             std::cout << "." << std::flush;
-            orig.take_step(truedt, 0, orig.n);
+            //orig.take_step(truedt);
+            orig.take_step_rk2(truedt);
         }
         std::cout << std::endl;
     } else {

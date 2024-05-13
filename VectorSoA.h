@@ -32,6 +32,9 @@ struct VectorSoA {
     zero();
   }
 
+  // alternatively, construct from an existing object
+  VectorSoA(const VectorSoA& _from) : x(_from.x) {}
+
   // destructor
   ~VectorSoA() { }
 

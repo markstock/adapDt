@@ -245,3 +245,39 @@ dt		levs	time	pos err					vel err
 # It is apparent when going up to 11+ levels that we need a more accurate method
 # for computing the "true" solution! Either higher-order integrator or an fp64 run
 # using the adaptive method itself (with smaller dt as well!)
+
+# 2024-05-12
+# now using RK2 for "true" solution
+# 1k on tp
+./adapDt.bin -n=1000 -i=disk1kinit.dat -dt=0.000001 -end=0.01 -true -o=disk1ktruep01rk2.dat
+./adapDt.bin -n=1000 -i=disk1kinit.dat -dt=0.01 -end=0.01 -l=1 -c=disk1ktruep01rk2.dat
+
+error vs level (tp)
+dt		levs	time	pos err					vel err
+0.01	1		0.00334	1.865e-04 / 2.986e-03	2.973e-02 / 4.737e-01
+0.01	3		0.02536	6.262e-05 / 9.933e-04	7.086e-03 / 1.103e-01
+0.01	5		0.01322	1.653e-05 / 2.607e-04	1.744e-03 / 2.701e-02
+0.01	7		0.00579	4.303e-06 / 6.552e-05	4.507e-04 / 6.678e-03
+0.01	9		0.00703	1.842e-06 / 2.068e-05	2.025e-04 / 2.133e-03
+0.01	11		0.0099	1.735e-06 / 2.083e-05	1.928e-04 / 2.167e-03
+0.01	11		0.0077	1.719e-06 / 2.056e-05	1.912e-04 / 2.139e-03	this is vs. Euler-stepped "true" solution
+
+# 2024-05-13
+# can we take longer time steps now that we're using RK2?
+./adapDt.bin -n=1000 -i=disk1kinit.dat -dt=0.00001 -end=0.01 -true -o=disk1ktruep01rk2b.dat
+./adapDt.bin -n=1000 -i=disk1kinit.dat -dt=0.01 -end=0.01 -l=11 -c=disk1ktruep01rk2b.dat
+dt		levs	time	pos err					vel err
+0.01	11		0.01105	1.735e-06 / 2.084e-05	1.928e-04 / 2.167e-03	with true using dt=0.00001
+# yes, we can!
+
+# run for more time!
+./adapDt.bin -n=1000 -i=disk1kinit.dat -dt=0.00001 -end=0.1 -true -o=disk1ktruep1rk2b.dat
+./adapDt.bin -n=1000 -i=disk1kinit.dat -dt=0.01 -end=0.1 -l=11 -c=disk1ktruep1rk2b.dat
+
+dt		levs	time	pos err					vel err
+0.01	5		0.03888	4.352e-03 / 6.492e-02	1.330e-01 / 2.684e+00
+0.01	11		0.12125	4.220e-04 / 7.079e-03	2.717e-02 / 6.867e-01
+0.01	13		0.22759	4.224e-04 / 7.089e-03	2.718e-02 / 6.865e-01
+
+# Seems like we really need solution-adaptiveness here
+
