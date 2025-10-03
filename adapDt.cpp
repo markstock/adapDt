@@ -295,6 +295,11 @@ int main(int argc, char *argv[]) {
         //printf("  jerk start %g %g %g and end %g %g %g\n", src.s.jerk[0], src.s.jerk[1], src.s.jerk[2], src.s.jerk[src.n-3], src.s.jerk[src.n-2], src.s.jerk[src.n-1]);
     }
 
+    if (nsteps == 0) {
+        printf("\nJust writing particles. Quitting now.\n");
+        exit(0);
+    }
+
     //
     // Run the simulation a few time steps
     //
@@ -364,12 +369,14 @@ int main(int argc, char *argv[]) {
         printf("\nRunning 'true' solution");
 
         // run the "true" solution some number of steps
-        double truedt = (runtrueonly ? dt : 0.00001);
-        int truensteps = 0.5 + endtime / truedt;
+        const double truedt = (runtrueonly ? 0.0001 : dt);
+        const int truensteps = 0.5 + endtime / truedt;
+        const int dotsteps = 1 + truensteps / 80;
         for (int istep = 0; istep < truensteps; ++istep) {
-            std::cout << "." << std::flush;
+            if ((istep+1)%dotsteps==0) { std::cout << "." << std::flush; }
             //orig.take_step(truedt);
-            orig.take_step_rk2(truedt);
+            //orig.take_step_rk2(truedt);
+            orig.take_step_rk4(truedt);
         }
         std::cout << std::endl;
     } else {

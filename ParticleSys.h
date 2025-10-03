@@ -214,6 +214,37 @@ struct Particles {
     s.rk2_step(_dt, 0, n, temp);
   }
 
+  // simple step: RK4 on all
+  void take_step_rk4 (const double _dt) {
+
+    // first step: compute accelerations given original positions
+    s.zero(0, n);
+    nbody_serial(0, n, s.pos, m, r, 0, n, s.acc);
+
+    // second step: project forward a half step using that acceleration and compute accelerations there
+    AccelerationState stage2(s);		// copies pos, vel, accel, jerk
+    stage2.euler_step(0.5*_dt, 0, n);	// updates pos and vel
+    stage2.zero(0, n);					// zeroes accel
+    nbody_serial(0, n, stage2.pos, m, r, 0, n, stage2.acc);	// computes accel from pos
+
+    // third step: project forward a half step from initial using the new acceleration and compute accelerations there
+    AccelerationState stage3(s);
+    copy_threevec(stage2.acc, stage3.acc);
+    stage3.euler_step(0.5*_dt, 0, n);
+    stage3.zero(0, n);
+    nbody_serial(0, n, stage3.pos, m, r, 0, n, stage3.acc);
+
+    // fourth step: project forward a full step from initial using the newest acceleration
+    AccelerationState stage4(s);
+    copy_threevec(stage3.acc, stage4.acc);
+    stage4.euler_step(_dt, 0, n);
+    stage4.zero(0, n);
+    nbody_serial(0, n, stage4.pos, m, r, 0, n, stage4.acc);
+
+    // and take the RK2 step from original positions and vels, using average of both accelerations
+    s.rk4_step(_dt, 0, n, stage2, stage3, stage4);
+  }
+
   //
   // final step: given source particles affect given target particles, starting with given acceleration
   //

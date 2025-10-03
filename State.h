@@ -74,11 +74,17 @@ struct AccelerationState {
 
   // computes new position and vel from pos, vel, acc, dt
   void euler_step(const double _dt, const IT _ifirst, const IT _ilast) {
-    // really first order in velocity, midpoint rule for position
+    // be general: Euler step for both pos and vel
     for (uint8_t d=0; d<D; ++d) {
-      for (IT i=_ifirst; i<_ilast; ++i) pos.x[d][i] += _dt*(vel.x[d][i] + 0.5*_dt*acc.x[d][i]);
+      for (IT i=_ifirst; i<_ilast; ++i) pos.x[d][i] += _dt*vel.x[d][i];
       for (IT i=_ifirst; i<_ilast; ++i) vel.x[d][i] += _dt*acc.x[d][i];
     }
+
+    // really first order in velocity, midpoint rule for position
+    //for (uint8_t d=0; d<D; ++d) {
+    //  for (IT i=_ifirst; i<_ilast; ++i) pos.x[d][i] += _dt*(vel.x[d][i] + 0.5*_dt*acc.x[d][i]);
+    //  for (IT i=_ifirst; i<_ilast; ++i) vel.x[d][i] += _dt*acc.x[d][i];
+    //}
 
     // could also do
     //for (uint8_t d=0; d<D; ++d) {
@@ -100,10 +106,22 @@ struct AccelerationState {
   // computes new position and vel from pos, vel, acc, dt, using both accelerations
   void rk2_step(const double _dt, const IT _ifirst, const IT _ilast, const AccelerationState& _alt) {
     // second order in velocity and position
+    const double hdt = 0.5*_dt;
     for (uint8_t d=0; d<D; ++d) {
-      for (IT i=_ifirst; i<_ilast; ++i) pos.x[d][i] += 0.5*_dt*vel.x[d][i];
-      for (IT i=_ifirst; i<_ilast; ++i) vel.x[d][i] += 0.5*_dt*(acc.x[d][i]+_alt.acc.x[d][i]);
-      for (IT i=_ifirst; i<_ilast; ++i) pos.x[d][i] += 0.5*_dt*vel.x[d][i];
+      for (IT i=_ifirst; i<_ilast; ++i) pos.x[d][i] += hdt * (vel.x[d][i]+_alt.vel.x[d][i]);
+      for (IT i=_ifirst; i<_ilast; ++i) vel.x[d][i] += hdt * (acc.x[d][i]+_alt.acc.x[d][i]);
+    }
+  }
+
+  // computes new position and vel from pos, vel, acc, dt, using this and 3 other stages
+  void rk4_step(const double _dt, const IT _ifirst, const IT _ilast, const AccelerationState& _s2,
+      const AccelerationState& _s3, const AccelerationState& _s4) {
+    const double os = _dt/6.;
+    const double ot = _dt/3.;
+    // fourth order in velocity and position
+    for (uint8_t d=0; d<D; ++d) {
+      for (IT i=_ifirst; i<_ilast; ++i) pos.x[d][i] += os*vel.x[d][i] + ot*_s2.vel.x[d][i] + ot*_s3.vel.x[d][i] + os*_s4.vel.x[d][i];
+      for (IT i=_ifirst; i<_ilast; ++i) vel.x[d][i] += os*acc.x[d][i] + ot*_s2.acc.x[d][i] + ot*_s3.acc.x[d][i] + os*_s4.acc.x[d][i];
     }
   }
 };
