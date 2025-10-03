@@ -17,8 +17,8 @@ With `g++` installed, you can simply run:
 Generate and save a re-usable set of particles, find the "true" solution, and compare to it later:
 
 	./adapDt.bin -n=10000 -s=0 -o=initial.dat
-	./adapDt.bin -n=10000 -s=10 -i=initial.dat -true -o=truesoln.dat
-	./adapDt.bin -n=10000 -s=10 -i=initial.dat -c=truesoln.dat
+	./adapDt.bin -s=10 -i=initial.dat -true -o=truesoln.dat
+	./adapDt.bin -s=10 -i=initial.dat -c=truesoln.dat
 
 ## Results
 

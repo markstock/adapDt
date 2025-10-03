@@ -38,6 +38,10 @@ struct VectorSoA {
   // destructor
   ~VectorSoA() { }
 
+  void resize(const int _n) {
+    for (uint8_t d=0; d<D; ++d) x[d].resize(_n);
+  }
+
   void init_rand(std::mt19937 _gen, const T _min, const T _max) {
     std::uniform_real_distribution<> zmean_dist(_min, _max);
     const IT n = x[0].size();

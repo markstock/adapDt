@@ -55,6 +55,16 @@ struct Particles {
     deep_copy(_src);
   }
 
+  // resize all arrays
+  void resize(const int _n) {
+    n = _n;
+    idx.resize(_n);
+    r.resize(_n);
+    m.resize(_n);
+    std::iota(idx.begin(), idx.end(), 0);
+    s.resize(_n);
+  }
+
   void init_rand(std::mt19937 _gen) {
     std::uniform_real_distribution<> zmean_mass(0.0, 1.0);
     for (int i=0; i<n; ++i) m[i] = zmean_mass(_gen);
@@ -158,6 +168,7 @@ struct Particles {
     assert(not _ofn.empty() && "Outfile name is bad or empty");
     std::cout << "\nWriting data to (" << _ofn << ")..." << std::flush;
     std::ofstream OUTFILE(_ofn);
+    OUTFILE << n << "\n";
     for (int i=0; i<n; ++i) {
       OUTFILE << idx[i] << " " << std::setprecision(17) << s.pos.x[0][i] << " " << s.pos.x[1][i] << " " << s.pos.x[2][i] << " " << r[i] << " " << m[i] << " " << s.vel.x[0][i] << " " << s.vel.x[1][i] << " " << s.vel.x[2][i] << "\n";
     }
@@ -165,15 +176,21 @@ struct Particles {
     std::cout << "done" << std::endl;
   }
 
-  void fromfile(const std::string _ifn) {
+  int fromfile(const std::string _ifn) {
     assert(not _ifn.empty() && "Input name is bad or empty");
     std::cout << "\nReading data from (" << _ifn << ")..." << std::flush;
     std::ifstream INFILE(_ifn);
+    // read n and resize
+    INFILE >> n;
+    resize(n);
+    std::cout << " creating " << n << " particles..." << std::flush;
+    // now read all of the particles
     for (int i=0; i<n; ++i) {
       INFILE >> idx[i] >> s.pos.x[0][i] >> s.pos.x[1][i] >> s.pos.x[2][i] >> r[i] >> m[i] >> s.vel.x[0][i] >> s.vel.x[1][i] >> s.vel.x[2][i];
     }
     INFILE.close();
-    std::cout << "done" << std::endl;
+    std::cout << " done" << std::endl;
+    return n;
   }
 
   //

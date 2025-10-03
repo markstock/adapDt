@@ -164,6 +164,11 @@ int main(int argc, char *argv[]) {
         }
     }
 
+    Particles<double> orig(1);
+    if (not infile.empty()) {
+        n_in = orig.fromfile(infile);
+    }
+
 #ifdef USE_MPI
     (void) MPI_Init(&argc, &argv);
     (void) MPI_Comm_size(MPI_COMM_WORLD, &nproc);
@@ -180,7 +185,7 @@ int main(int argc, char *argv[]) {
 
     // set problem size
     const int maxGangSize = 1;		// this is 512 bits / 32 bits per float
-    const int numSrcs = buffer(n_in,maxGangSize);
+    int numSrcs = buffer(n_in,maxGangSize);
 
     // init random number generator
     //std::random_device rd;  //Will be used to obtain a seed for the random number engine
@@ -188,7 +193,7 @@ int main(int argc, char *argv[]) {
     std::mt19937 gen(12345); //Standard mersenne_twister_engine seeded with rd()
 
     // allocate fp64 and fp32 particle data
-    Particles<double> orig(numSrcs);
+    orig.resize(numSrcs);
     if (infile.empty()) {
         if (distro = cube) {
             // if random cloud and linear masses
@@ -197,8 +202,6 @@ int main(int argc, char *argv[]) {
             // if disk distribution with power law masses
             orig.init_disk(gen);
         }
-    } else {
-        orig.fromfile(infile);
     }
 
     // copy the full-precision particles to the test set

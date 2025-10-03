@@ -41,6 +41,13 @@ struct AccelerationState {
   // destructor
   ~AccelerationState() { }
 
+  void resize(const int _n) {
+    pos.resize(_n);
+    vel.resize(_n);
+    acc.resize(_n);
+    jerk.resize(_n);
+  }
+
   void init_rand(std::mt19937 _gen) {
     pos.init_rand(_gen, -1.0, 1.0);
     vel.init_rand(_gen, -1.0, 1.0);
@@ -129,6 +136,7 @@ struct AccelerationState {
 
 template<class F, class FIT, class T, class TIT, uint8_t D>
 void copy_state (const AccelerationState<F,FIT,D>& _from, AccelerationState<T,TIT,D>& _to) {
+  //fprintf(stderr,"  from has %d  to has %d  particles\n", _from.jerk.size(), _to.jerk.size());
   assert(_from.jerk.size() == _to.jerk.size() && "Copying from State with different n");
   copy_threevec (_from.pos, _to.pos);
   copy_threevec (_from.vel, _to.vel);
@@ -155,6 +163,12 @@ struct VelocityState {
 
   // destructor
   ~VelocityState() { }
+
+  void resize(const int _n) {
+    pos.resize(_n);
+    vel.resize(_n);
+    jerk.resize(_n);
+  }
 
   void init_rand(std::mt19937 _gen) {
     pos.init_rand(_gen, -1.0, 1.0);
