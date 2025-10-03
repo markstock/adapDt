@@ -7,6 +7,7 @@ CC=g++
 #CPPOPTS=-O3 -mavx2 -mfma
 #CPPOPTS=-Ofast -march=native
 CPPOPTS=-O3 -march=native
+#CPPOPTS=-O0 -march=native -g -ggdb
 CPPOPTS+=-fopenmp
 
 HEADERS=VectorSoA.h State.h ParticleSys.h GravKernels.h
@@ -20,4 +21,4 @@ all : adapDt.bin
 	$(CC) $(CPPOPTS) $(INCLUDE) -o $@ $< $(LIBS)
 
 clean :
-	rm -f multidt1.bin
+	rm -f adapDt.bin
