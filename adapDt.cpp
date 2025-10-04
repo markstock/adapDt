@@ -27,25 +27,32 @@
 
 // not really alignment, just minimum block sizes
 inline int buffer(const int _n, const int _align) {
-  // 63,64 returns 1*64; 64,64 returns 1*64; 65,64 returns 2*64=128
-  return _align*((_n+_align-1)/_align);
+    // 63,64 returns 1*64; 64,64 returns 1*64; 65,64 returns 2*64=128
+    return _align*((_n+_align-1)/_align);
 }
 
 // distribute ntotal items across nproc processes, now how many are on proc iproc?
 inline int nthisproc(const int ntotal, const int iproc, const int nproc) {
-  const int base_nper = ntotal / nproc;
-  return (iproc < (ntotal-base_nper*nproc)) ? base_nper+1 : base_nper;
+    const int base_nper = ntotal / nproc;
+    return (iproc < (ntotal-base_nper*nproc)) ? base_nper+1 : base_nper;
 }
 
 
 static inline void usage() {
-    fprintf(stderr, "Usage: adapDt.bin [-n <number>] [-s <steps>] [-dt <num>] [-l <nlevels>] [-adapt] [-end <time>]\n");
+    fprintf(stderr, "Usage: adapDt.bin [-n <number>] [-s <steps>] [-dt <num>] [-l <nlevels>] [-adapt] [-end <time>] [-epos|-evel|-emom|-eall]\n");
     exit(1);
 }
 
 enum ParticleDistribution {
-  cube,
-  disk
+    cube,
+    disk
+};
+
+enum ErrorMetric {
+    all,
+    position,
+    velocity,
+    momentum
 };
 
 // main program
@@ -55,13 +62,14 @@ int main(int argc, char *argv[]) {
     bool presort = true;
     bool adaptive = false;
     bool runtrueonly = false;
+    ErrorMetric errtype = all;
     int num_levels = 1;
     int n_in = 10000;
     int nsteps = 1;
     int nproc = 1;
     int iproc = 0;
-    double dt = 0.001;
-    double endtime = 0.01;
+    double dt = 0.01;
+    double endtime = 0.1;
     float slowfrac = 0.5;
     std::string infile;
     std::string outfile;
@@ -119,6 +127,15 @@ int main(int argc, char *argv[]) {
             endtime = num;
             nsteps = 0.5 + endtime / dt;
 
+        } else if (strncmp(argv[i], "-emom", 3) == 0) {
+            errtype = momentum;
+        } else if (strncmp(argv[i], "-evel", 3) == 0) {
+            errtype = velocity;
+        } else if (strncmp(argv[i], "-epos", 3) == 0) {
+            errtype = position;
+        } else if (strncmp(argv[i], "-eall", 3) == 0) {
+            errtype = all;
+
         } else if (strncmp(argv[i], "-frac=", 6) == 0) {
             double num = atof(argv[i] + 6);
             if (num < 0.0) usage();
@@ -157,9 +174,8 @@ int main(int argc, char *argv[]) {
             presort = false;
         } else if (strncmp(argv[i], "-true", 2) == 0) {
             runtrueonly = true;
-        } else if (strncmp(argv[i], "-h", 2) == 0) {
-            usage();
         } else {
+            // catches -h --help
             usage();
         }
     }
@@ -367,6 +383,8 @@ int main(int argc, char *argv[]) {
     if (iproc==0) printf("\nTotal test time :\t[%.6f] seconds\n", tottime);
     } // end if 
 
+    // now we have the test solution in src
+
     // get the true solution somehow
     if (comparefile.empty()) {
         printf("\nRunning 'true' solution");
@@ -385,7 +403,14 @@ int main(int argc, char *argv[]) {
     } else {
         // just read in the compare file
         orig.fromfile(comparefile);
+        // is this a valid comparison file?
+        if (orig.n != src.n) {
+            fprintf(stderr,"Compare file does not have %d entries, it has %d. Is that the right file?\n", src.n, orig.n);
+            exit(1);
+        }
     }
+
+    // at this point, src is our test case and orig is the "true" solution
 
     if (iproc==0 and false) {
         printf("\nat end (t=%g), some positions\n", nsteps*dt);
@@ -423,6 +448,7 @@ int main(int argc, char *argv[]) {
             }
             std::cout << "\nWriting error to (" << errorfile << ")..." << std::flush;
             std::ofstream OUTFILE(errorfile);
+            OUTFILE << orig.n << "\n";
             for (int i=0; i<orig.n; ++i) {
                 const double posmag = std::sqrt(std::pow(src.s.pos.x[0][i],2) + std::pow(src.s.pos.x[1][i],2) + std::pow(src.s.pos.x[2][i],2));
                 const double velmag = std::sqrt(std::pow(src.s.vel.x[0][i],2) + std::pow(src.s.vel.x[1][i],2) + std::pow(src.s.vel.x[2][i],2));
@@ -438,6 +464,7 @@ int main(int argc, char *argv[]) {
 
         if (iproc==0) printf("\nFinal error analysis :\n");
 
+        if (errtype == position or errtype == all) {
         numer = 0.0;
         denom = 0.0;
         maxerr = 0.0;
@@ -449,7 +476,9 @@ int main(int argc, char *argv[]) {
             denom += std::pow(orig.s.pos.x[0][i],2) + std::pow(orig.s.pos.x[1][i],2) + std::pow(orig.s.pos.x[2][i],2);
         }
         if (iproc==0) printf("\t\t(%.3e / %.3e mean/max RMS error vs. dble, position)\n", std::sqrt(numer/denom), std::sqrt(orig.n*maxerr/denom));
+        }
 
+        if (errtype == velocity or errtype == all) {
         numer = 0.0;
         denom = 0.0;
         maxerr = 0.0;
@@ -461,6 +490,21 @@ int main(int argc, char *argv[]) {
             denom += std::pow(orig.s.vel.x[0][i],2) + std::pow(orig.s.vel.x[1][i],2) + std::pow(orig.s.vel.x[2][i],2);
         }
         if (iproc==0) printf("\t\t(%.3e / %.3e mean/max RMS error vs. dble, velocity)\n", std::sqrt(numer/denom), std::sqrt(orig.n*maxerr/denom));
+        }
+
+        if (errtype == momentum or errtype == all) {
+        numer = 0.0;
+        denom = 0.0;
+        maxerr = 0.0;
+        for (int i=0; i<orig.n; ++i) {
+            const int oid = src.idx[i];
+            const double thiserr = src.m[i] * (std::pow(orig.s.vel.x[0][oid]-src.s.vel.x[0][i],2) + std::pow(orig.s.vel.x[1][oid]-src.s.vel.x[1][i],2) + std::pow(orig.s.vel.x[2][oid]-src.s.vel.x[2][i],2));
+            if (thiserr > maxerr) maxerr = thiserr;
+            numer += thiserr;
+            denom += src.m[i] * (std::pow(orig.s.vel.x[0][i],2) + std::pow(orig.s.vel.x[1][i],2) + std::pow(orig.s.vel.x[2][i],2));
+        }
+        if (iproc==0) printf("\t\t(%.3e / %.3e mean/max RMS error vs. dble, momentum)\n", std::sqrt(numer/denom), std::sqrt(orig.n*maxerr/denom));
+        }
 
     }
 
